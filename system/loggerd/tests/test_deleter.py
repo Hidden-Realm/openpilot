@@ -7,6 +7,7 @@ from collections.abc import Sequence
 import openpilot.system.loggerd.deleter as deleter
 from openpilot.common.timeout import Timeout, TimeoutException
 from openpilot.system.loggerd.tests.loggerd_tests_common import UploaderTestCase
+from openpilot.sunnypilot.dashcam.clips import ClipStore, dashcam_root, make_clip
 
 Stats = namedtuple("Stats", ['f_bavail', 'f_blocks', 'f_frsize'])
 
@@ -70,6 +71,20 @@ class TestDeleter(UploaderTestCase):
       self.make_file_with_data(self.seg_format.format(1), self.f_type),
       self.make_file_with_data(self.seg_format2.format(0), self.f_type),
     ])
+
+  def test_delete_saved_dashcam_clips_last(self):
+    store = ClipStore(dashcam_root())
+    clip = make_clip(self.seg_format.rsplit("--", 1)[0], 1, 0.0)  # keeps segments 0 and 1
+    store.save(clip)
+
+    self.assertDeleteOrder([
+      self.make_file_with_data(self.seg_format.format(2), self.f_type),
+      self.make_file_with_data(self.seg_format2.format(0), self.f_type, preserve_xattr=deleter.PRESERVE_ATTR_VALUE),
+      self.make_file_with_data(self.seg_format.format(0), self.f_type),
+      self.make_file_with_data(self.seg_format.format(1), self.f_type),
+    ])
+    # with nothing else left, the clip had to be given up
+    assert store.list() == []
 
   def test_delete_many_preserved(self):
     self.assertDeleteOrder([

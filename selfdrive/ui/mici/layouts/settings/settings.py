@@ -6,6 +6,7 @@ from openpilot.selfdrive.ui.mici.layouts.settings.network.network_layout import 
 from openpilot.selfdrive.ui.mici.layouts.settings.device import DeviceLayoutMici, PairBigButton
 from openpilot.selfdrive.ui.mici.layouts.settings.developer import DeveloperLayoutMici
 from openpilot.selfdrive.ui.mici.layouts.settings.firehose import FirehoseLayout
+from openpilot.selfdrive.ui.mici.layouts.settings.dashcam import DashcamBigButton
 from openpilot.system.ui.lib.application import gui_app, FontWeight
 
 
@@ -42,8 +43,9 @@ class SettingsLayout(NavScroller):
     self._scroller.add_widgets([
       toggles_btn,
       network_btn,
-      device_btn,
+      device_btn,  # sunnypilot's SettingsLayoutSP rebinds _items[2], keep new buttons after it
       PairBigButton(),
+      DashcamBigButton(network_panel._wifi_manager),
       #BigDialogButton("manual", "", "icons_mici/settings/manual_icon.png", "Check out the mici user\nmanual at comma.ai/setup"),
       firehose_btn,
       developer_btn,

@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark light">
+<title>Dash Cam</title>
+<style>
+  :root {
+    --bg: #0f1012; --card: #1b1d21; --text: #f2f3f5; --muted: #9aa0a8; --line: #2a2d33;
+    --accent: #3b82f6; --accent-text: #fff; --danger: #ef4444;
+  }
+  @media (prefers-color-scheme: light) {
+    :root { --bg: #f4f5f7; --card: #fff; --text: #14161a; --muted: #5f6670; --line: #e3e5e9; }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 16px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    padding: max(16px, env(safe-area-inset-top)) 16px max(24px, env(safe-area-inset-bottom));
+  }
+  main { max-width: 640px; margin: 0 auto; }
+  h1 { font-size: 28px; margin: 4px 0 2px; }
+  .sub { color: var(--muted); margin: 0 0 16px; font-size: 14px; }
+  .storage { height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; margin: 6px 0 4px; }
+  .storage > div { height: 100%; background: var(--accent); width: 0; }
+  details { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; margin-bottom: 16px; font-size: 14px; }
+  summary { font-weight: 600; cursor: pointer; }
+  details ol { margin: 8px 0 0; padding-left: 20px; color: var(--muted); }
+  .clip { background: var(--card); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; margin-bottom: 14px; }
+  .thumb { width: 100%; aspect-ratio: 526 / 330; background: #000 center / cover no-repeat; display: block; }
+  .body { padding: 12px 14px 14px; }
+  .when { font-weight: 600; font-size: 17px; }
+  .meta { color: var(--muted); font-size: 14px; margin-bottom: 10px; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; }
+  button {
+    font: inherit; font-weight: 600; border: 0; border-radius: 10px; padding: 11px 14px; min-height: 44px;
+    background: var(--accent); color: var(--accent-text); flex: 1 1 auto;
+  }
+  button.secondary { background: var(--line); color: var(--text); }
+  button.danger { background: transparent; color: var(--danger); flex: 0 0 auto; }
+  button:disabled { opacity: .6; }
+  .empty { text-align: center; color: var(--muted); padding: 40px 12px; }
+  .err { color: var(--danger); font-size: 14px; margin-top: 8px; }
+  video { width: 100%; display: block; background: #000; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Dash Cam</h1>
+  <p class="sub" id="storage-text">Loading…</p>
+  <div class="storage"><div id="storage-bar"></div></div>
+
+  <details>
+    <summary>Saving a video to your iPhone</summary>
+    <ol>
+      <li>Tap <b>Save</b> on a clip and wait while it's prepared (a few seconds).</li>
+      <li>Tap <b>Download</b> when Safari asks.</li>
+      <li>Open the <b>Files</b> app &rarr; <b>Downloads</b>, tap the video, then <b>Share</b> &rarr; <b>Save Video</b> to put it in Photos.</li>
+    </ol>
+  </details>
+
+  <div id="clips"></div>
+</main>
+
+<script>
+const fmtBytes = b => b >= 1e9 ? (b / 1e9).toFixed(1) + ' GB' : Math.round(b / 1e6) + ' MB';
+const fmtDur = s => Math.floor(s / 60) + ':' + String(Math.round(s % 60)).padStart(2, '0');
+const validTime = t => t > 1577836800;  // device clock is synced (after 2020)
+
+function fmtWhen(t) {
+  if (!validTime(t)) return 'Unknown time';
+  return new Date(t * 1000).toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+}
+
+function fileName(clip, cam) {
+  if (!validTime(clip.created)) return `dashcam_${cam}`;
+  const d = new Date(clip.created * 1000), p = n => String(n).padStart(2, '0');
+  return `dashcam_${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}_${cam}`;
+}
+
+async function prepare(clip, cam) {
+  const r = await fetch(`/api/clips/${encodeURIComponent(clip.id)}/prepare/${cam}`, { method: 'POST' });
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.error || 'Could not prepare video');
+  return j;
+}
+
+function el(tag, attrs = {}, ...kids) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) k === 'class' ? e.className = v : e.setAttribute(k, v);
+  kids.forEach(k => e.append(k));
+  return e;
+}
+
+function renderClip(clip) {
+  const card = el('div', { class: 'clip' });
+  const thumb = el('div', { class: 'thumb' });
+  thumb.style.backgroundImage = `url("/thumb/${encodeURIComponent(clip.id)}.jpg")`;
+  const err = el('div', { class: 'err' });
+  const cams = clip.cameras.length ? clip.cameras : [];
+  const camText = cams.length ? cams.length + (cams.length === 1 ? ' camera' : ' cameras') : 'video missing';
+
+  const row = el('div', { class: 'row' });
+  for (const cam of cams) {
+    const label = cams.length > 1 ? `Save ${cam}` : 'Save';
+    const save = el('button', {}, label);
+    save.onclick = async () => {
+      save.disabled = true; save.textContent = 'Preparing…'; err.textContent = '';
+      try {
+        const { url } = await prepare(clip, cam);
+        location.href = `${url}?dl=1&name=${encodeURIComponent(fileName(clip, cam))}`;
+      } catch (e) { err.textContent = e.message; }
+      save.disabled = false; save.textContent = label;
+    };
+    row.append(save);
+  }
+  if (cams.length) {
+    const watch = el('button', { class: 'secondary' }, 'Watch');
+    watch.onclick = async () => {
+      watch.disabled = true; watch.textContent = 'Preparing…'; err.textContent = '';
+      try {
+        const { url } = await prepare(clip, cams[0]);
+        const v = el('video', { controls: '', playsinline: '', autoplay: '', src: url });
+        thumb.replaceWith(v);
+        watch.remove();
+      } catch (e) { err.textContent = e.message; watch.disabled = false; watch.textContent = 'Watch'; }
+    };
+    row.append(watch);
+  }
+  const del = el('button', { class: 'danger' }, 'Delete');
+  del.onclick = async () => {
+    if (!confirm('Delete this clip? Its video will be recorded over like normal driving footage.')) return;
+    await fetch(`/api/clips/${encodeURIComponent(clip.id)}/delete`, { method: 'POST' });
+    card.remove();
+    load();
+  };
+  row.append(del);
+
+  card.append(thumb, el('div', { class: 'body' },
+    el('div', { class: 'when' }, fmtWhen(clip.created)),
+    el('div', { class: 'meta' }, `${fmtDur(clip.duration)} · ${camText} · ${fmtBytes(clip.bytes)}`),
+    row, err));
+  return card;
+}
+
+async function load() {
+  const list = document.getElementById('clips');
+  try {
+    const r = await fetch('/api/clips');
+    if (!r.ok) throw new Error();
+    const { clips, storage, saved_bytes } = await r.json();
+    const used = storage.total - storage.free;
+    document.getElementById('storage-text').textContent =
+      `${clips.length} saved ${clips.length === 1 ? 'clip' : 'clips'} · ${fmtBytes(saved_bytes)} · ${fmtBytes(storage.free)} free`;
+    document.getElementById('storage-bar').style.width = storage.total ? (100 * used / storage.total) + '%' : '0';
+    if (!list.children.length || list.dataset.count != clips.length) {
+      list.replaceChildren(...(clips.length ? clips.map(renderClip)
+        : [el('div', { class: 'empty' }, 'No saved clips yet. Hold the distance button on the steering wheel for a second while driving to save one.')]));
+      list.dataset.count = clips.length;
+    }
+  } catch {
+    document.getElementById('storage-text').textContent = "Can't reach the device. Is the car still off?";
+  }
+}
+load();
+</script>
+</body>
+</html>

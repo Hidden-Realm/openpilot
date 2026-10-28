@@ -182,6 +182,10 @@ procs += [
 
   # locationd
   NativeProcess("locationd_llk", "sunnypilot/selfdrive/locationd", ["./locationd"], only_onroad),
+
+  # dash cam: save clips while driving, download them over Wi-Fi while parked
+  PythonProcess("dashcamd", "sunnypilot.dashcam.dashcamd", logging),
+  PythonProcess("dashcam_viewer", "sunnypilot.dashcam.server", only_offroad),
 ]
 
 if os.path.exists("./github_runner.sh"):

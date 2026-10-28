@@ -1,0 +1,264 @@
+#!/usr/bin/env python3
+"""
+Wi-Fi viewer for saved dash cam clips. Runs only while the car is off.
+
+Open it by scanning the QR code under settings -> dash cam on the device. The
+phone must be on the device's hotspot or the same Wi-Fi network as the device.
+"""
+import ipaddress
+import json
+import mimetypes
+import os
+import re
+import shutil
+import threading
+import urllib.parse
+from http import cookies
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+from openpilot.sunnypilot.dashcam.clips import CAMERAS, Clip, ClipStore, clip_bytes, clip_cameras
+from openpilot.sunnypilot.dashcam.export import export_clip, make_thumbnail
+from openpilot.sunnypilot.dashcam.viewer_url import PORT, get_token
+
+STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
+COOKIE = "dashcam"
+MAX_CACHED_EXPORTS = 3
+CHUNK = 1024 * 1024
+LABEL_TO_FILE = {label: name for name, label in CAMERAS.items()}
+
+FORBIDDEN_PAGE = b"""<!doctype html><meta name=viewport content='width=device-width'>
+<body style='font-family:sans-serif;padding:24px'><h2>Dash cam</h2>
+<p>Scan the QR code under <b>settings &rarr; dash cam</b> on the device to open this page.</p>"""
+
+
+class Viewer:
+  def __init__(self, store: ClipStore, roots: list[str], token: str):
+    self.store = store
+    self.roots = roots
+    self.token = token
+    self._locks: dict[str, threading.Lock] = {}
+    self._locks_lock = threading.Lock()
+
+  def _lock(self, key: str) -> threading.Lock:
+    with self._locks_lock:
+      return self._locks.setdefault(key, threading.Lock())
+
+  def clip_info(self, clip: Clip) -> dict:
+    return {
+      "id": clip.id,
+      "created": clip.created,
+      "duration": round(clip.duration),
+      "cameras": [CAMERAS[c] for c in clip_cameras(clip, self.roots)],
+      "bytes": clip_bytes(clip, self.roots),
+    }
+
+  def storage(self) -> dict:
+    try:
+      usage = shutil.disk_usage(self.roots[0])
+      return {"free": usage.free, "total": usage.total}
+    except OSError:
+      return {"free": 0, "total": 0}
+
+  def thumbnail(self, clip: Clip) -> str | None:
+    path = os.path.join(self.store.thumbs_dir, f"{clip.id}.jpg")
+    with self._lock(f"thumb:{clip.id}"):
+      if os.path.isfile(path) or make_thumbnail(clip, self.roots, path):
+        return path
+    return None
+
+  def export(self, clip: Clip, label: str) -> str | None:
+    cam_file = LABEL_TO_FILE.get(label)
+    if cam_file is None:
+      return None
+    path = os.path.join(self.store.exports_dir, f"{clip.id}.{label}.mp4")
+    with self._lock(f"export:{path}"):
+      if os.path.isfile(path):
+        os.utime(path)
+        return path
+      os.makedirs(self.store.exports_dir, exist_ok=True)
+      self._trim_exports()
+      return path if export_clip(clip, cam_file, self.roots, path) else None
+
+  def _trim_exports(self) -> None:
+    """Exports are full-quality copies, so keep only the few most recently used."""
+    try:
+      files = [os.path.join(self.store.exports_dir, f) for f in os.listdir(self.store.exports_dir) if f.endswith(".mp4")]
+    except OSError:
+      return
+    files.sort(key=os.path.getmtime, reverse=True)
+    for old in files[MAX_CACHED_EXPORTS - 1:]:
+      try:
+        os.remove(old)
+      except OSError:
+        pass
+
+
+def make_handler(viewer: Viewer):
+  class Handler(BaseHTTPRequestHandler):
+    server_version = "dashcam"
+
+    def log_message(self, *args):
+      pass
+
+    # ---- helpers
+    def _authed(self, query: dict) -> bool:
+      if query.get("k", [""])[0] == viewer.token:
+        return True
+      jar = cookies.SimpleCookie(self.headers.get("Cookie", ""))
+      return COOKIE in jar and jar[COOKIE].value == viewer.token
+
+    def _local_client(self) -> bool:
+      try:
+        ip = ipaddress.ip_address(self.client_address[0])
+        return ip.is_private or ip.is_loopback
+      except ValueError:
+        return False
+
+    def _send(self, code: int, body: bytes, ctype: str, headers: dict | None = None) -> None:
+      self.send_response(code)
+      self.send_header("Content-Type", ctype)
+      self.send_header("Content-Length", str(len(body)))
+      self.send_header("Cache-Control", "no-store")
+      for k, v in (headers or {}).items():
+        self.send_header(k, v)
+      self.end_headers()
+      if self.command != "HEAD":
+        self.wfile.write(body)
+
+    def _json(self, obj, code: int = 200) -> None:
+      self._send(code, json.dumps(obj).encode(), "application/json")
+
+    def _forbidden(self) -> None:
+      self._send(403, FORBIDDEN_PAGE, "text/html; charset=utf-8")
+
+    def _file(self, path: str, ctype: str, download_name: str | None = None) -> None:
+      """Serve a file with Range support; Safari needs it to play and download video."""
+      size = os.path.getsize(path)
+      start, end = 0, size - 1
+      rng = re.fullmatch(r"bytes=(\d*)-(\d*)", self.headers.get("Range", "").strip())
+      if rng and (rng.group(1) or rng.group(2)):
+        if rng.group(1):
+          start = int(rng.group(1))
+          end = min(int(rng.group(2)), size - 1) if rng.group(2) else size - 1
+        else:
+          start = max(0, size - int(rng.group(2)))
+        if start > end or start >= size:
+          self.send_response(416)
+          self.send_header("Content-Range", f"bytes */{size}")
+          self.end_headers()
+          return
+        self.send_response(206)
+        self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
+      else:
+        self.send_response(200)
+      self.send_header("Content-Type", ctype)
+      self.send_header("Content-Length", str(end - start + 1))
+      self.send_header("Accept-Ranges", "bytes")
+      if download_name:
+        self.send_header("Content-Disposition", f'attachment; filename="{download_name}"')
+      self.end_headers()
+      if self.command == "HEAD":
+        return
+      with open(path, "rb") as f:
+        f.seek(start)
+        remaining = end - start + 1
+        while remaining > 0:
+          chunk = f.read(min(CHUNK, remaining))
+          if not chunk:
+            break
+          try:
+            self.wfile.write(chunk)
+          except (BrokenPipeError, ConnectionResetError):
+            return
+          remaining -= len(chunk)
+
+    def _route(self):
+      url = urllib.parse.urlsplit(self.path)
+      return url.path, urllib.parse.parse_qs(url.query)
+
+    # ---- methods
+    def do_HEAD(self):
+      self.do_GET()
+
+    def do_GET(self):
+      path, query = self._route()
+      if not self._local_client() or not self._authed(query):
+        return self._forbidden()
+
+      if path == "/":
+        with open(os.path.join(STATIC_DIR, "index.html"), "rb") as f:
+          body = f.read()
+        cookie = f"{COOKIE}={viewer.token}; Path=/; Max-Age=31536000; SameSite=Strict; HttpOnly"
+        return self._send(200, body, "text/html; charset=utf-8", {"Set-Cookie": cookie})
+
+      if path == "/api/clips":
+        clips = [viewer.clip_info(c) for c in viewer.store.list()]
+        return self._json({"clips": clips, "storage": viewer.storage(), "saved_bytes": sum(c["bytes"] for c in clips)})
+
+      m = re.fullmatch(r"/thumb/([\w.-]+)\.jpg", path)
+      if m:
+        clip = viewer.store.get(m.group(1))
+        thumb = viewer.thumbnail(clip) if clip else None
+        return self._file(thumb, "image/jpeg") if thumb else self._send(404, b"", "text/plain")
+
+      m = re.fullmatch(r"/video/([\w.-]+)/(\w+)\.mp4", path)
+      if m:
+        clip = viewer.store.get(m.group(1))
+        mp4 = viewer.export(clip, m.group(2)) if clip else None
+        if mp4 is None:
+          return self._send(404, b"video not found", "text/plain")
+        name = None
+        if query.get("dl"):
+          name = re.sub(r"[^\w.-]", "_", query.get("name", [f"dashcam_{m.group(2)}"])[0])[:80] + ".mp4"
+        return self._file(mp4, mimetypes.types_map.get(".mp4", "video/mp4"), name)
+
+      self._send(404, b"not found", "text/plain")
+
+    def do_POST(self):
+      path, query = self._route()
+      if not self._local_client() or not self._authed(query):
+        return self._forbidden()
+
+      m = re.fullmatch(r"/api/clips/([\w.-]+)/prepare/(\w+)", path)
+      if m:
+        clip = viewer.store.get(m.group(1))
+        mp4 = viewer.export(clip, m.group(2)) if clip else None
+        if mp4 is None:
+          return self._json({"error": "no video for this clip"}, 404)
+        return self._json({"url": f"/video/{clip.id}/{m.group(2)}.mp4", "bytes": os.path.getsize(mp4)})
+
+      m = re.fullmatch(r"/api/clips/([\w.-]+)/delete", path)
+      if m:
+        viewer.store.delete(m.group(1))
+        return self._json({"ok": True})
+
+      self._send(404, b"not found", "text/plain")
+
+  return Handler
+
+
+def serve(viewer: Viewer, host: str = "0.0.0.0", port: int = PORT) -> ThreadingHTTPServer:
+  httpd = ThreadingHTTPServer((host, port), make_handler(viewer))
+  httpd.daemon_threads = True
+  return httpd
+
+
+def main():
+  from openpilot.common.swaglog import cloudlog
+  from openpilot.sunnypilot.dashcam.clips import dashcam_root, log_roots
+
+  root = dashcam_root()
+  store = ClipStore(root)
+  store.clear_exports()
+  viewer = Viewer(store, log_roots(), get_token(root))
+  httpd = serve(viewer)
+  cloudlog.warning(f"dashcam viewer listening on port {PORT}")
+  try:
+    httpd.serve_forever()
+  finally:
+    httpd.server_close()
+    store.clear_exports()
+
+
+if __name__ == "__main__":
+  main()
