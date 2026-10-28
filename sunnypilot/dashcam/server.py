@@ -30,6 +30,42 @@ FORBIDDEN_PAGE = b"""<!doctype html><meta name=viewport content='width=device-wi
 <body style='font-family:sans-serif;padding:24px'><h2>Dash cam</h2>
 <p>Scan the QR code under <b>settings &rarr; dash cam</b> on the device to open this page.</p>"""
 
+# shown at / without a valid code, so the bare address can be bookmarked and the code typed in once
+CODE_PAGE = """<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark light">
+<title>Dash Cam</title>
+<style>
+  body { margin: 0; padding: 32px 20px; font: 17px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+         background: #0f1012; color: #f2f3f5; }
+  @media (prefers-color-scheme: light) { body { background: #f4f5f7; color: #14161a; } }
+  main { max-width: 420px; margin: 0 auto; }
+  h1 { font-size: 28px; margin: 0 0 8px; }
+  p { color: #9aa0a8; margin: 0 0 20px; }
+  input { width: 100%; box-sizing: border-box; font: 600 24px/1 ui-monospace, Menlo, monospace; letter-spacing: 4px;
+          padding: 14px; border-radius: 12px; border: 1px solid #3a3d44; background: transparent; color: inherit; }
+  button { width: 100%; margin-top: 12px; padding: 14px; font: inherit; font-weight: 600; border: 0; border-radius: 12px;
+           background: #3b82f6; color: #fff; }
+  .wrong { color: #ef4444; }
+</style></head>
+<body><main>
+  <h1>Dash Cam</h1>
+  <p>Enter the code shown under <b>settings &rarr; dash cam</b> on the device.</p>
+  {wrong}
+  <form action="/" method="get">
+    <input name="k" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" maxlength="16"
+           placeholder="code" aria-label="code" autofocus>
+    <button type="submit">Open clips</button>
+  </form>
+</main></body></html>
+"""
+WRONG_CODE_HTML = '<p class="wrong">That code didn\'t match. Check the device screen and try again.</p>'
+
+
+def normalize_code(code: str) -> str:
+  return "".join(code.split()).lower()
+
 
 class Viewer:
   def __init__(self, store: ClipStore, roots: list[str], token: str):
@@ -102,7 +138,7 @@ def make_handler(viewer: Viewer):
 
     # ---- helpers
     def _authed(self, query: dict) -> bool:
-      if query.get("k", [""])[0] == viewer.token:
+      if normalize_code(query.get("k", [""])[0]) == viewer.token:
         return True
       jar = cookies.SimpleCookie(self.headers.get("Cookie", ""))
       return COOKIE in jar and jar[COOKIE].value == viewer.token
@@ -128,7 +164,10 @@ def make_handler(viewer: Viewer):
     def _json(self, obj, code: int = 200) -> None:
       self._send(code, json.dumps(obj).encode(), "application/json")
 
-    def _forbidden(self) -> None:
+    def _forbidden(self, path: str = "", query: dict | None = None) -> None:
+      if path == "/" and self._local_client():
+        wrong = WRONG_CODE_HTML if (query or {}).get("k") else ""
+        return self._send(403, CODE_PAGE.replace("{wrong}", wrong).encode(), "text/html; charset=utf-8")
       self._send(403, FORBIDDEN_PAGE, "text/html; charset=utf-8")
 
     def _file(self, path: str, ctype: str, download_name: str | None = None) -> None:
@@ -183,7 +222,7 @@ def make_handler(viewer: Viewer):
     def do_GET(self):
       path, query = self._route()
       if not self._local_client() or not self._authed(query):
-        return self._forbidden()
+        return self._forbidden(path, query)
 
       if path == "/":
         with open(os.path.join(STATIC_DIR, "index.html"), "rb") as f:

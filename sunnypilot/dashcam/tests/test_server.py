@@ -51,6 +51,24 @@ def test_requires_access_code(viewer):
   assert request(f"{base}/api/clips", headers={"Cookie": "dashcam=wrong"})[0] == 403
 
 
+def test_bare_address_asks_for_code(viewer):
+  _, _, _, base = viewer
+  status, _, body = request(f"{base}/")
+  assert status == 403
+  assert b'name="k"' in body and b"didn't match" not in body
+
+  status, _, body = request(f"{base}/?k=nope")
+  assert status == 403
+  assert b"didn't match" in body
+
+
+def test_typed_code_ignores_case_and_spaces(viewer):
+  _, _, _, base = viewer
+  status, headers, _ = request(f"{base}/?k=%20TestTo%20ken%20")
+  assert status == 200
+  assert f"dashcam={TOKEN}" in headers["Set-Cookie"]
+
+
 def test_qr_link_sets_cookie(viewer):
   _, _, _, base = viewer
   status, headers, body = request(f"{base}/?k={TOKEN}")

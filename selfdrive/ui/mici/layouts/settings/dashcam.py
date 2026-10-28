@@ -8,7 +8,7 @@ from openpilot.common.swaglog import cloudlog
 from openpilot.selfdrive.ui.mici.widgets.button import BigButton
 from openpilot.selfdrive.ui.ui_state import ui_state
 from openpilot.sunnypilot.dashcam.clips import ClipStore, dashcam_root
-from openpilot.sunnypilot.dashcam.viewer_url import TETHERING_IP, get_token, viewer_url, wifi_qr_payload, wlan_ip
+from openpilot.sunnypilot.dashcam.viewer_url import PORT, TETHERING_IP, get_token, viewer_url, wifi_qr_payload, wlan_ip
 from openpilot.system.ui.lib.application import FontWeight, gui_app
 from openpilot.system.ui.lib.wifi_manager import WifiManager
 from openpilot.system.ui.widgets.label import UnifiedLabel
@@ -38,11 +38,11 @@ def _qr_texture(payload: str) -> rl.Texture | None:
 
 
 class DashcamDialog(NavWidget):
-  """QR codes for getting saved clips onto a phone.
+  """How to get saved clips onto a phone. Tap to go to the next step.
 
-  On the device's hotspot it's two steps: a QR the iPhone camera uses to join
-  the hotspot, then (tap to switch) the QR that opens the viewer. On a shared
-  Wi-Fi network only the viewer QR is needed.
+  On the device's hotspot: a QR the iPhone camera uses to join the hotspot,
+  then the QR that opens the viewer, then the same address and code as text
+  for typing in or bookmarking. On a shared Wi-Fi network the join step is skipped.
   """
 
   def __init__(self, wifi_manager: WifiManager):
@@ -53,20 +53,20 @@ class DashcamDialog(NavWidget):
 
     self._qr_texture: rl.Texture | None = None
     self._qr_payload: str | None = None
-    self._show_join_step = True
+    self._step = 0
     self._last_refresh = float("-inf")
 
     self._title = UnifiedLabel("dash cam", font_size=48, font_weight=FontWeight.BOLD, line_height=0.8)
     self._body = UnifiedLabel("", font_size=32, font_weight=FontWeight.MEDIUM, text_color=rl.Color(255, 255, 255, int(255 * 0.65)))
-    self.set_click_callback(self._toggle_step)
+    self.set_click_callback(self._next_step)
 
   def show_event(self):
     super().show_event()
-    self._show_join_step = True
+    self._step = 0
     self._last_refresh = float("-inf")
 
-  def _toggle_step(self):
-    self._show_join_step = not self._show_join_step
+  def _next_step(self):
+    self._step += 1
     self._last_refresh = float("-inf")
 
   def _set_qr(self, payload: str | None) -> None:
@@ -88,16 +88,21 @@ class DashcamDialog(NavWidget):
     elif ip is None:
       self._set_qr(None)
       self._body.set_text(f"{count}\n\nturn on tethering in network settings, or join the same Wi-Fi as your phone")
-    elif ip == TETHERING_IP and self._show_join_step:
-      ssid = self._wifi_manager._tethering_ssid
-      self._set_qr(wifi_qr_payload(ssid, self._wifi_manager.tethering_password))
-      self._body.set_text(f"1. scan to join\n{ssid}\n\ntap for step 2")
-    elif ip == TETHERING_IP:
-      self._set_qr(viewer_url(ip, self._token))
-      self._body.set_text(f"2. scan to open clips\n\n{count}\ntap for step 1")
     else:
-      self._set_qr(viewer_url(ip, self._token))
-      self._body.set_text(f"scan to open clips\n(phone on same Wi-Fi)\n\n{count}")
+      steps = ["join", "open", "type"] if ip == TETHERING_IP else ["open", "type"]
+      step = steps[self._step % len(steps)]
+      n = f"{steps.index(step) + 1}. "
+      if step == "join":
+        ssid = self._wifi_manager._tethering_ssid
+        self._set_qr(wifi_qr_payload(ssid, self._wifi_manager.tethering_password))
+        self._body.set_text(f"{n}scan to join\n{ssid}\n\ntap for next step")
+      elif step == "open":
+        self._set_qr(viewer_url(ip, self._token))
+        where = "" if ip == TETHERING_IP else "\n(phone on same Wi-Fi)"
+        self._body.set_text(f"{n}scan to open clips{where}\n\n{count}\ntap for next step")
+      else:
+        self._set_qr(None)
+        self._body.set_text(f"{n}or in Safari go to\n{ip}:{PORT}\nand enter code  {self._token}")
 
   def _render(self, rect: rl.Rectangle):
     now = time.monotonic()

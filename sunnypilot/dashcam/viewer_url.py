@@ -13,6 +13,10 @@ import struct
 PORT = 8099
 TETHERING_IP = "192.168.43.1"
 
+# easy to read off the device screen and type on a phone: no look-alikes like l/1 or o/0
+TOKEN_ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789"
+TOKEN_LENGTH = 8
+
 
 def get_token(root: str) -> str:
   path = os.path.join(root, "viewer_token")
@@ -23,7 +27,7 @@ def get_token(root: str) -> str:
       return token
   except OSError:
     pass
-  token = secrets.token_urlsafe(6)
+  token = "".join(secrets.choice(TOKEN_ALPHABET) for _ in range(TOKEN_LENGTH))
   os.makedirs(root, exist_ok=True)
   with open(path, "w") as f:
     f.write(token)
