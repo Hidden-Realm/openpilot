@@ -18,6 +18,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from openpilot.sunnypilot.dashcam.clips import CAMERAS, Clip, ClipStore, clip_bytes, clip_cameras
 from openpilot.sunnypilot.dashcam.export import export_clip, make_thumbnail
+from openpilot.sunnypilot.dashcam.upload import STATE_FILE, check_servers, load_config, read_status, update_config
 from openpilot.sunnypilot.dashcam.viewer_url import PORT, get_token
 
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
@@ -79,14 +80,22 @@ class Viewer:
     with self._locks_lock:
       return self._locks.setdefault(key, threading.Lock())
 
-  def clip_info(self, clip: Clip) -> dict:
+  def clip_info(self, clip: Clip, upload_state: dict) -> dict:
     return {
       "id": clip.id,
       "created": clip.created,
       "duration": round(clip.duration),
       "cameras": [CAMERAS[c] for c in clip_cameras(clip, self.roots)],
       "bytes": clip_bytes(clip, self.roots),
+      "uploaded": "done" in upload_state.get(clip.id, []),
     }
+
+  def upload_state(self) -> dict:
+    try:
+      with open(os.path.join(self.store.root, STATE_FILE)) as f:
+        return json.load(f)
+    except (OSError, ValueError):
+      return {}
 
   def storage(self) -> dict:
     try:
@@ -231,8 +240,12 @@ def make_handler(viewer: Viewer):
         return self._send(200, body, "text/html; charset=utf-8", {"Set-Cookie": cookie})
 
       if path == "/api/clips":
-        clips = [viewer.clip_info(c) for c in viewer.store.list()]
+        state = viewer.upload_state()
+        clips = [viewer.clip_info(c, state) for c in viewer.store.list()]
         return self._json({"clips": clips, "storage": viewer.storage(), "saved_bytes": sum(c["bytes"] for c in clips)})
+
+      if path == "/api/upload":
+        return self._json({"config": load_config(viewer.store.root).public(), "status": read_status(viewer.store.root)})
 
       m = re.fullmatch(r"/thumb/([\w.-]+)\.jpg", path)
       if m:
@@ -270,6 +283,19 @@ def make_handler(viewer: Viewer):
       if m:
         viewer.store.delete(m.group(1))
         return self._json({"ok": True})
+
+      if path == "/api/upload":
+        try:
+          length = int(self.headers.get("Content-Length", "0"))
+          changes = json.loads(self.rfile.read(min(length, 64 * 1024)) or b"{}")
+        except ValueError:
+          return self._json({"error": "bad settings"}, 400)
+        if not isinstance(changes, dict):
+          return self._json({"error": "bad settings"}, 400)
+        return self._json({"config": update_config(viewer.store.root, changes).public()})
+
+      if path == "/api/upload/test":
+        return self._json({"results": check_servers(load_config(viewer.store.root))})
 
       self._send(404, b"not found", "text/plain")
 

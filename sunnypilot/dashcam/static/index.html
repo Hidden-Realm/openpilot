@@ -41,6 +41,19 @@
   button.danger { background: transparent; color: var(--danger); flex: 0 0 auto; }
   button:disabled { opacity: .6; }
   .empty { text-align: center; color: var(--muted); padding: 40px 12px; }
+  .badge { display: inline-block; font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 999px;
+           background: var(--line); color: var(--muted); margin-left: 6px; vertical-align: 2px; }
+  form.settings { display: grid; gap: 12px; margin-top: 12px; }
+  form.settings label { display: grid; gap: 4px; font-size: 14px; color: var(--muted); }
+  form.settings label.check { display: flex; gap: 10px; align-items: center; color: var(--text); font-size: 15px; }
+  form.settings input[type=text], form.settings input[type=url], form.settings input[type=password] {
+    font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 10px;
+    padding: 11px 12px; width: 100%; box-sizing: border-box;
+  }
+  form.settings input[type=checkbox] { width: 22px; height: 22px; accent-color: var(--accent); }
+  .hint { font-size: 13px; color: var(--muted); }
+  .warn { font-size: 13px; color: #f59e0b; }
+  .status { font-size: 14px; margin-top: 4px; }
   .err { color: var(--danger); font-size: 14px; margin-top: 8px; }
   video { width: 100%; display: block; background: #000; }
 </style>
@@ -58,6 +71,38 @@
       <li>Tap <b>Download</b> when Safari asks.</li>
       <li>Open the <b>Files</b> app &rarr; <b>Downloads</b>, tap the video, then <b>Share</b> &rarr; <b>Save Video</b> to put it in Photos.</li>
     </ol>
+  </details>
+
+  <details id="upload">
+    <summary>Upload to your own server</summary>
+    <p class="hint">Saved clips are copied to your server over WebDAV (Nextcloud, Synology, TrueNAS and most home-cloud
+      software support it). These settings are stored only on this device.</p>
+    <div class="status" id="upload-status"></div>
+    <form class="settings" id="upload-form" autocomplete="off">
+      <label class="check"><input type="checkbox" name="enabled"> Upload saved clips automatically</label>
+      <label>Home address (used on your home Wi-Fi)
+        <input type="url" name="home_url" placeholder="http://192.168.1.20:8080/remote.php/dav/files/you" spellcheck="false"></label>
+      <label>Away address (port-forwarded, used from anywhere)
+        <input type="url" name="away_url" placeholder="https://yourname.example.com/remote.php/dav/files/you" spellcheck="false"></label>
+      <div class="warn" id="http-warn" hidden>The away address starts with http://, so your password would cross the internet
+        unencrypted. Use https:// if your server supports it.</div>
+      <label>Username <input type="text" name="username" autocapitalize="none" spellcheck="false"></label>
+      <label>Password <input type="password" name="password" autocomplete="new-password"></label>
+      <label>Folder on the server <input type="text" name="folder" autocapitalize="none" spellcheck="false"></label>
+      <div>
+        <div class="hint">Cameras to upload</div>
+        <label class="check"><input type="checkbox" name="cam_road"> Road</label>
+        <label class="check"><input type="checkbox" name="cam_wide"> Wide</label>
+        <label class="check"><input type="checkbox" name="cam_driver"> Driver (only if driver recording is on)</label>
+      </div>
+      <label class="check"><input type="checkbox" name="delete_after_upload"> Remove from this device once uploaded</label>
+      <label class="check"><input type="checkbox" name="insecure_tls"> Accept a self-signed certificate</label>
+      <div class="row">
+        <button type="submit">Save</button>
+        <button type="button" class="secondary" id="upload-test">Test connection</button>
+      </div>
+      <div class="status" id="upload-result"></div>
+    </form>
   </details>
 
   <div id="clips"></div>
@@ -137,8 +182,10 @@ function renderClip(clip) {
   };
   row.append(del);
 
+  const when = el('div', { class: 'when' }, fmtWhen(clip.created));
+  if (clip.uploaded) when.append(el('span', { class: 'badge' }, 'Uploaded'));
   card.append(thumb, el('div', { class: 'body' },
-    el('div', { class: 'when' }, fmtWhen(clip.created)),
+    when,
     el('div', { class: 'meta' }, `${fmtDur(clip.duration)} · ${camText} · ${fmtBytes(clip.bytes)}`),
     row, err));
   return card;
@@ -164,6 +211,89 @@ async function load() {
   }
 }
 load();
+
+// ---- upload settings
+const form = document.getElementById('upload-form');
+const CAMS = ['road', 'wide', 'driver'];
+
+function fmtAgo(t) {
+  const s = Date.now() / 1000 - t;
+  if (s < 90) return 'just now';
+  if (s < 5400) return Math.round(s / 60) + ' min ago';
+  if (s < 129600) return Math.round(s / 3600) + ' h ago';
+  return Math.round(s / 86400) + ' days ago';
+}
+
+function showStatus(cfg, st) {
+  const out = document.getElementById('upload-status');
+  if (!cfg.enabled) { out.textContent = 'Uploading is off.'; return; }
+  const parts = [];
+  if (st.message) parts.push(st.message[0].toUpperCase() + st.message.slice(1) + '.');
+  if (st.pending) parts.push(`${st.pending} waiting.`);
+  if (st.last_upload) parts.push(`Last upload ${fmtAgo(st.last_upload)}.`);
+  out.textContent = parts.join(' ') || 'Waiting for a saved clip.';
+}
+
+function fillForm(cfg) {
+  for (const k of ['enabled', 'delete_after_upload', 'insecure_tls']) form.elements[k].checked = !!cfg[k];
+  for (const k of ['home_url', 'away_url', 'username', 'folder']) form.elements[k].value = cfg[k] || '';
+  for (const c of CAMS) form.elements['cam_' + c].checked = cfg.cameras.includes(c);
+  form.elements.password.value = '';
+  form.elements.password.placeholder = cfg.password_set ? 'saved (leave blank to keep)' : '';
+  checkHttp();
+}
+
+function checkHttp() {
+  document.getElementById('http-warn').hidden = !form.elements.away_url.value.trim().toLowerCase().startsWith('http://');
+}
+form.elements.away_url.addEventListener('input', checkHttp);
+
+async function loadUpload() {
+  try {
+    const r = await fetch('/api/upload');
+    if (!r.ok) return;
+    const { config, status } = await r.json();
+    if (!form.contains(document.activeElement)) fillForm(config);
+    showStatus(config, status);
+  } catch {}
+}
+
+async function saveUpload() {
+  const body = {
+    enabled: form.elements.enabled.checked,
+    delete_after_upload: form.elements.delete_after_upload.checked,
+    insecure_tls: form.elements.insecure_tls.checked,
+    cameras: CAMS.filter(c => form.elements['cam_' + c].checked),
+  };
+  for (const k of ['home_url', 'away_url', 'username', 'folder', 'password']) body[k] = form.elements[k].value;
+  const r = await fetch('/api/upload', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const { config } = await r.json();
+  fillForm(config);
+  return config;
+}
+
+form.addEventListener('submit', async e => {
+  e.preventDefault();
+  const result = document.getElementById('upload-result');
+  try { await saveUpload(); result.textContent = 'Saved.'; } catch { result.textContent = "Couldn't save."; }
+  loadUpload();
+});
+
+document.getElementById('upload-test').onclick = async () => {
+  const result = document.getElementById('upload-result');
+  result.textContent = 'Saving and testing…';
+  try {
+    await saveUpload();
+    const r = await fetch('/api/upload/test', { method: 'POST' });
+    const { results } = await r.json();
+    const names = { home: 'Home address', away: 'Away address' };
+    const lines = Object.entries(results).map(([k, v]) => `${names[k]}: ${v === 'ok' ? 'works' : v}`);
+    result.textContent = lines.length ? lines.join(' · ') : 'Enter at least one address first.';
+  } catch { result.textContent = "Couldn't run the test."; }
+};
+
+loadUpload();
+setInterval(loadUpload, 10000);
 </script>
 </body>
 </html>

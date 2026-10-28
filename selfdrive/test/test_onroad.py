@@ -56,6 +56,7 @@ PROCS = {
   "selfdrive.ui.soundd": 3.0,
   "selfdrive.ui.feedback.feedbackd": 1.0,
   "sunnypilot.dashcam.dashcamd": 1.0,
+  "sunnypilot.dashcam.upload": 1.0,
   "selfdrive.monitoring.dmonitoringd": 4.0,
   "system.proclogd": 7.0,
   "system.logmessaged": 1.0,

@@ -93,6 +93,24 @@ def test_delete(viewer):
   assert v.store.list() == []
 
 
+def test_upload_settings_never_return_password(viewer):
+  _, _, _, base = viewer
+  body = json.dumps({"home_url": "http://10.0.0.5/dav", "username": "me", "password": "hunter2"}).encode()
+  req = urllib.request.Request(f"{base}/api/upload", data=body, method="POST", headers={**AUTH, "Content-Type": "application/json"})
+  with urllib.request.urlopen(req) as r:
+    saved = json.loads(r.read())["config"]
+  assert saved["home_url"] == "http://10.0.0.5/dav" and saved["password_set"]
+
+  status, _, body = request(f"{base}/api/upload", headers=AUTH)
+  assert status == 200
+  assert b"hunter2" not in body
+  assert json.loads(body)["config"]["username"] == "me"
+
+  # settings can't be read or changed without the access code
+  assert request(f"{base}/api/upload")[0] == 403
+  assert request(f"{base}/api/upload", method="POST")[0] == 403
+
+
 def test_missing_video_is_404(viewer):
   _, clip, _, base = viewer
   assert request(f"{base}/api/clips/{clip.id}/prepare/road", method="POST", headers=AUTH)[0] == 404
