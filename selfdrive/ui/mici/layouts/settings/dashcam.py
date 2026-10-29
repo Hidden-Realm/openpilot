@@ -1,4 +1,5 @@
 import time
+from typing import Optional
 
 import numpy as np
 import pyray as rl
@@ -17,7 +18,7 @@ from openpilot.system.ui.widgets.nav_widget import NavWidget
 REFRESH_SECONDS = 2.0
 
 
-def _qr_texture(payload: str) -> rl.Texture | None:
+def _qr_texture(payload: str) -> Optional[rl.Texture]:
   try:
     qr = qrcode.QRCode(version=1, error_correction=qrcode.constants.ERROR_CORRECT_L, box_size=10, border=0)
     qr.add_data(payload)
