@@ -111,6 +111,26 @@ def test_upload_settings_never_return_password(viewer):
   assert request(f"{base}/api/upload", method="POST")[0] == 403
 
 
+def test_wheel_button_setting(viewer):
+  _, _, _, base = viewer
+  status, _, body = request(f"{base}/api/settings", headers=AUTH)
+  assert status == 200 and json.loads(body) == {"wheel_button": "lkas"}
+
+  def post(value):
+    req = urllib.request.Request(f"{base}/api/settings", data=json.dumps({"wheel_button": value}).encode(), method="POST",
+                                 headers={**AUTH, "Content-Type": "application/json"})
+    try:
+      with urllib.request.urlopen(req) as r:
+        return r.status
+    except urllib.error.HTTPError as e:
+      return e.code
+
+  assert post("off") == 200
+  assert json.loads(request(f"{base}/api/settings", headers=AUTH)[2])["wheel_button"] == "off"
+  assert post("horn") == 400
+  assert request(f"{base}/api/settings", method="POST")[0] == 403
+
+
 def test_missing_video_is_404(viewer):
   _, clip, _, base = viewer
   assert request(f"{base}/api/clips/{clip.id}/prepare/road", method="POST", headers=AUTH)[0] == 404

@@ -50,7 +50,7 @@
     font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 10px;
     padding: 11px 12px; width: 100%; box-sizing: border-box;
   }
-  form.settings input[type=checkbox] { width: 22px; height: 22px; accent-color: var(--accent); }
+  form.settings input[type=checkbox], form.settings input[type=radio] { width: 22px; height: 22px; accent-color: var(--accent); flex: 0 0 auto; }
   .hint { font-size: 13px; color: var(--muted); }
   .warn { font-size: 13px; color: #f59e0b; }
   .status { font-size: 14px; margin-top: 4px; }
@@ -63,6 +63,22 @@
   <h1>Dash Cam</h1>
   <p class="sub" id="storage-text">Loading…</p>
   <div class="storage"><div id="storage-bar"></div></div>
+
+  <details id="saving">
+    <summary>Saving a clip while driving</summary>
+    <p class="hint">Each save keeps the 3 minutes before and the minute after. On the comma screen, hold a finger on the
+      road view for a second, or swipe left from the right edge.</p>
+    <form class="settings" id="button-form">
+      <div class="hint">Steering wheel button (hold for a second to save)</div>
+      <label class="check"><input type="radio" name="wheel_button" value="lkas"> LKAS button. A quick press still
+        turns steering on and off.</label>
+      <label class="check"><input type="radio" name="wheel_button" value="distance"> Distance button. Only with the
+        car's own cruise control: with openpilot longitudinal, holding it switches experimental mode.</label>
+      <label class="check"><input type="radio" name="wheel_button" value="off"> None, screen only</label>
+      <div class="hint">Takes effect the next time you start the car.</div>
+      <div class="status" id="button-result"></div>
+    </form>
+  </details>
 
   <details>
     <summary>Saving a video to your iPhone</summary>
@@ -203,7 +219,7 @@ async function load() {
     document.getElementById('storage-bar').style.width = storage.total ? (100 * used / storage.total) + '%' : '0';
     if (!list.children.length || list.dataset.count != clips.length) {
       list.replaceChildren(...(clips.length ? clips.map(renderClip)
-        : [el('div', { class: 'empty' }, 'No saved clips yet. Hold the distance button on the steering wheel for a second while driving to save one.')]));
+        : [el('div', { class: 'empty' }, 'No saved clips yet. While driving, hold the steering wheel button you picked under "Saving a clip while driving", or hold a finger on the comma screen, for a second to save one.')]));
       list.dataset.count = clips.length;
     }
   } catch {
@@ -294,6 +310,21 @@ document.getElementById('upload-test').onclick = async () => {
 
 loadUpload();
 setInterval(loadUpload, 10000);
+
+// ---- steering wheel button
+const buttonForm = document.getElementById('button-form');
+fetch('/api/settings').then(r => r.json()).then(({ wheel_button }) => {
+  buttonForm.querySelector(`input[value="${wheel_button}"]`).checked = true;
+}).catch(() => {});
+buttonForm.addEventListener('change', async e => {
+  const result = document.getElementById('button-result');
+  try {
+    const r = await fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                             body: JSON.stringify({ wheel_button: e.target.value }) });
+    if (!r.ok) throw new Error();
+    result.textContent = 'Saved.';
+  } catch { result.textContent = "Couldn't save."; }
+});
 </script>
 </body>
 </html>

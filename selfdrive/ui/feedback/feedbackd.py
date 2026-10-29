@@ -5,10 +5,18 @@ from openpilot.common.params import Params
 from openpilot.common.swaglog import cloudlog
 from cereal import car
 from openpilot.system.micd import SAMPLE_RATE, SAMPLE_BUFFER
-from openpilot.sunnypilot.dashcam.hold import ButtonHold
+from openpilot.sunnypilot.dashcam.clips import dashcam_root
+from openpilot.sunnypilot.dashcam.hold import ButtonHold, wheel_button
 
 FEEDBACK_MAX_DURATION = 10.0
 ButtonType = car.CarState.ButtonEvent.Type
+SAVE_BUTTONS = {"lkas": ButtonType.lkas, "distance": ButtonType.gapAdjustCruise}
+
+
+def distance_hold_allowed(params: Params) -> bool:
+  # with openpilot longitudinal, holding distance already switches experimental mode
+  cp = params.get("CarParams")
+  return cp is not None and not messaging.log_from_bytes(cp, car.CarParams).openpilotLongitudinalControl
 
 
 def main():
@@ -19,25 +27,28 @@ def main():
   block_num = 0
   waiting_for_release = False
   early_stop_triggered = False
-  distance_hold = ButtonHold()
+  button_name = wheel_button(dashcam_root())
+  save_button = SAVE_BUTTONS.get(button_name)
+  button_hold = ButtonHold()
 
   while True:
     sm.update()
     should_send_bookmark = False
 
-    # dash cam: holding the distance button saves a clip, same as the on-screen bookmark.
-    # A short press still reaches the car and changes following distance as usual.
-    if sm.updated['carState']:
+    # dash cam: holding the chosen steering wheel button saves a clip, same as the on-screen bookmark.
+    # A short press still does its usual job (MADS steering for LKAS, following distance for distance).
+    if save_button is not None and sm.updated['carState']:
       if sm['carState'].canValid:
-        distance_pressed = None
+        pressed = None
         for be in sm['carState'].buttonEvents:
-          if be.type == ButtonType.gapAdjustCruise:
-            distance_pressed = be.pressed
-        if distance_hold.update(distance_pressed, time.monotonic()):
-          cloudlog.info("Distance button held - saving dash cam clip")
-          should_send_bookmark = True
+          if be.type == save_button:
+            pressed = be.pressed
+        if button_hold.update(pressed, time.monotonic()):
+          if save_button != ButtonType.gapAdjustCruise or distance_hold_allowed(params):
+            cloudlog.info(f"{button_name} button held - saving dash cam clip")
+            should_send_bookmark = True
       else:
-        distance_hold.reset()
+        button_hold.reset()
 
     # TODO: https://github.com/commaai/openpilot/issues/36015
     # only allow the LKAS button to record feedback when MADS is disabled

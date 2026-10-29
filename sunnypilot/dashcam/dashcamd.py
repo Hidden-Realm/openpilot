@@ -2,8 +2,8 @@
 """
 Turns bookmarks into saved dash cam clips.
 
-feedbackd publishes userBookmark when the on-screen flag is tapped or the
-distance button is held. Each one becomes a clip record covering the three
+feedbackd publishes userBookmark when the road view is held or swiped, or the
+chosen steering wheel button is held (see hold.py). Each one becomes a clip record covering the three
 minutes before the press and the minute after; the deleter keeps those
 segments and the Wi-Fi viewer exports them.
 """

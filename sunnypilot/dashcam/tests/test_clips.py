@@ -3,7 +3,7 @@ import os
 import pytest
 
 from openpilot.sunnypilot.dashcam.clips import ClipStore, clip_cameras, clip_window, current_segment, make_clip
-from openpilot.sunnypilot.dashcam.hold import ButtonHold
+from openpilot.sunnypilot.dashcam.hold import DEFAULT_WHEEL_BUTTON, ButtonHold, ButtonTap, set_wheel_button, wheel_button
 
 ROUTE = "0000002a--6c3b9f3e1d"
 
@@ -113,3 +113,51 @@ class TestButtonHold:
     hold.update(True, 0.0)
     hold.reset()
     assert not hold.update(None, 2.0)
+
+
+class TestButtonTap:
+  def test_short_press_fires_on_release(self):
+    tap = ButtonTap()
+    assert not tap.update(True, 10.0)
+    assert not tap.update(None, 10.3)
+    assert tap.update(False, 10.4)
+
+  def test_hold_does_not_fire(self):
+    tap = ButtonTap()
+    tap.update(True, 0.0)
+    assert not tap.update(None, 1.5)
+    assert not tap.update(False, 1.6)
+
+  def test_press_and_release_in_one_frame(self):
+    tap = ButtonTap()
+    assert not tap.update(True, 5.0)
+    assert tap.update(False, 5.0)
+
+  def test_release_without_press(self):
+    assert not ButtonTap().update(False, 1.0)
+
+  def test_tap_and_hold_agree_at_the_threshold(self):
+    # the same press is either a tap or a hold, never both and never neither
+    for held in (0.2, 0.99, 1.0, 1.5):
+      tap, hold = ButtonTap(), ButtonHold()
+      fired = [hold.update(True, 0.0), tap.update(True, 0.0)]
+      fired += [hold.update(None, held), hold.update(False, held), tap.update(False, held)]
+      assert sum(fired) == 1, held
+
+
+class TestWheelButton:
+  def test_default_and_saved(self, tmp_path):
+    root = str(tmp_path)
+    assert wheel_button(root) == DEFAULT_WHEEL_BUTTON == "lkas"
+    set_wheel_button(root, "distance")
+    assert wheel_button(root) == "distance"
+
+  def test_rejects_unknown(self, tmp_path):
+    with pytest.raises(ValueError):
+      set_wheel_button(str(tmp_path), "horn")
+
+  def test_bad_file_falls_back(self, tmp_path):
+    (tmp_path / "settings.json").write_text("[1, 2]")
+    assert wheel_button(str(tmp_path)) == "lkas"
+    (tmp_path / "settings.json").write_text('{"wheel_button": "horn"}')
+    assert wheel_button(str(tmp_path)) == "lkas"

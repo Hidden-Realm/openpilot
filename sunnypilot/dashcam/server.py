@@ -18,6 +18,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from openpilot.sunnypilot.dashcam.clips import CAMERAS, Clip, ClipStore, clip_bytes, clip_cameras
 from openpilot.sunnypilot.dashcam.export import export_clip, make_thumbnail
+from openpilot.sunnypilot.dashcam.hold import WHEEL_BUTTONS, set_wheel_button, wheel_button
 from openpilot.sunnypilot.dashcam.upload import STATE_FILE, check_servers, load_config, read_status, update_config
 from openpilot.sunnypilot.dashcam.viewer_url import PORT, get_token
 
@@ -247,6 +248,9 @@ def make_handler(viewer: Viewer):
       if path == "/api/upload":
         return self._json({"config": load_config(viewer.store.root).public(), "status": read_status(viewer.store.root)})
 
+      if path == "/api/settings":
+        return self._json({"wheel_button": wheel_button(viewer.store.root)})
+
       m = re.fullmatch(r"/thumb/([\w.-]+)\.jpg", path)
       if m:
         clip = viewer.store.get(m.group(1))
@@ -284,7 +288,7 @@ def make_handler(viewer: Viewer):
         viewer.store.delete(m.group(1))
         return self._json({"ok": True})
 
-      if path == "/api/upload":
+      if path in ("/api/upload", "/api/settings"):
         try:
           length = int(self.headers.get("Content-Length", "0"))
           changes = json.loads(self.rfile.read(min(length, 64 * 1024)) or b"{}")
@@ -292,6 +296,10 @@ def make_handler(viewer: Viewer):
           return self._json({"error": "bad settings"}, 400)
         if not isinstance(changes, dict):
           return self._json({"error": "bad settings"}, 400)
+        if path == "/api/settings":
+          if changes.get("wheel_button") not in WHEEL_BUTTONS:
+            return self._json({"error": "bad settings"}, 400)
+          return self._json({"wheel_button": set_wheel_button(viewer.store.root, changes["wheel_button"])})
         return self._json({"config": update_config(viewer.store.root, changes).public()})
 
       if path == "/api/upload/test":

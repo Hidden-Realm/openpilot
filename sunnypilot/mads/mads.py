@@ -5,6 +5,8 @@ This file is part of sunnypilot and is licensed under the MIT License.
 See the LICENSE.md file in the root directory for more details.
 """
 
+import time
+
 from cereal import log, custom
 
 from opendbc.car import structs
@@ -12,6 +14,8 @@ from opendbc.car.hyundai.values import HyundaiFlags
 from openpilot.common.params import Params
 from openpilot.sunnypilot.mads.helpers import MadsSteeringModeOnBrake, read_steering_mode_param, MADS_NO_ACC_MAIN_BUTTON
 from openpilot.sunnypilot.mads.state import StateMachine, GEARS_ALLOW_PAUSED_SILENT
+from openpilot.sunnypilot.dashcam.clips import dashcam_root
+from openpilot.sunnypilot.dashcam.hold import ButtonTap, wheel_button
 
 State = custom.ModularAssistiveDrivingSystem.ModularAssistiveDrivingSystemState
 ButtonType = structs.CarState.ButtonEvent.Type
@@ -56,6 +60,9 @@ class ModularAssistiveDrivingSystem:
     self.main_enabled_toggle = self.params.get_bool("MadsMainCruiseAllowed")
     self.steering_mode_on_brake = read_steering_mode_param(self.CP, self.CP_SP, self.params)
     self.unified_engagement_mode = self.params.get_bool("MadsUnifiedEngagementMode")
+
+    # dash cam: when holding LKAS saves a clip, steering toggles when a short press is released
+    self.lkas_tap = ButtonTap() if wheel_button(dashcam_root()) == "lkas" else None
 
   def read_params(self):
     self.main_enabled_toggle = self.params.get_bool("MadsMainCruiseAllowed")
@@ -167,18 +174,30 @@ class ModularAssistiveDrivingSystem:
         if CS.cruiseState.available and not self.selfdrive.CS_prev.cruiseState.available:
           self.events_sp.add(EventNameSP.lkasEnable)
 
+    lkas_events = []
     for be in CS.buttonEvents:
       if be.type == ButtonType.cancel:
         if not self.selfdrive.enabled and self.selfdrive.enabled_prev:
           self.events_sp.add(EventNameSP.manualLongitudinalRequired)
-      if be.type == ButtonType.lkas and be.pressed and (CS.cruiseState.available or self.allow_always):
-        if self.enabled:
-          if self.selfdrive.enabled:
-            self.events_sp.add(EventNameSP.manualSteeringRequired)
-          else:
-            self.events_sp.add(EventNameSP.lkasDisable)
+      if be.type == ButtonType.lkas:
+        lkas_events.append(be.pressed)
+
+    if self.lkas_tap is not None:
+      now = time.monotonic()
+      lkas_toggle = False
+      for pressed in lkas_events:  # feed every event, so a release after a toggle isn't skipped
+        lkas_toggle |= self.lkas_tap.update(pressed, now)
+    else:
+      lkas_toggle = any(lkas_events)
+
+    if lkas_toggle and (CS.cruiseState.available or self.allow_always):
+      if self.enabled:
+        if self.selfdrive.enabled:
+          self.events_sp.add(EventNameSP.manualSteeringRequired)
         else:
-          self.events_sp.add(EventNameSP.lkasEnable)
+          self.events_sp.add(EventNameSP.lkasDisable)
+      else:
+        self.events_sp.add(EventNameSP.lkasEnable)
 
     if not CS.cruiseState.available and not self.no_main_cruise:
       self.events.remove(EventName.buttonEnable)

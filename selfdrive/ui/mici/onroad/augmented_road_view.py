@@ -16,6 +16,7 @@ from openpilot.system.ui.widgets import Widget
 from openpilot.common.filter_simple import BounceFilter
 from openpilot.common.transformations.camera import DEVICE_CAMERAS, DeviceCameraConfig, view_frame_from_device_frame
 from openpilot.common.transformations.orientation import rot_from_euler
+from openpilot.sunnypilot.dashcam.hold import HOLD_SECONDS
 from enum import IntEnum
 
 if gui_app.sunnypilot_ui():
@@ -44,6 +45,7 @@ class BookmarkIcon(Widget):
   PEEK_THRESHOLD = 50  # If icon peeks out this much, snap it fully visible
   FULL_VISIBLE_OFFSET = 200  # How far onscreen when fully visible
   HIDDEN_OFFSET = -50  # How far offscreen when hidden
+  HOLD_SLOP = 30  # A press that moves less than this and lasts HOLD_SECONDS also bookmarks (dash cam save)
 
   def __init__(self, bookmark_callback):
     super().__init__()
@@ -59,6 +61,9 @@ class BookmarkIcon(Widget):
     self._is_swiping = False
     self._is_swiping_left: bool = False
     self._triggered_time: float = 0.0
+    self._press_time: float | None = None
+    self._press_y = 0.0
+    self._held = False
 
   def is_swiping_left(self) -> bool:
     """Check if currently swiping left (for scroller to disable)."""
@@ -68,7 +73,23 @@ class BookmarkIcon(Widget):
     interacting, self._interacting = self._interacting, False
     return interacting
 
+  def _trigger(self):
+    self._state = BookmarkState.TRIGGERED
+    self._triggered_time = rl.get_time()
+    self._bookmark_callback()
+
   def _update_state(self):
+    if self._press_time is not None and not rl.is_mouse_button_down(0):
+      self._press_time = None  # released while we weren't rendered
+    if self._press_time is not None and rl.get_time() - self._press_time >= HOLD_SECONDS:
+      # held still: save without swiping, and don't let the release count as a tap
+      self._press_time = None
+      self._is_swiping = False
+      self._is_swiping_left = False
+      self._held = True
+      self._interacting = True
+      self._trigger()
+
     if self._state == BookmarkState.DRAGGING:
       # Allow pulling past activated position with rubber band effect
       swipe_offset = self._swipe_start_x - self._swipe_current_x
@@ -85,7 +106,7 @@ class BookmarkIcon(Widget):
     elif self._state == BookmarkState.HIDDEN:
       self._offset_filter.update(self.HIDDEN_OFFSET)
 
-      if self._offset_filter.x < 1e-3:
+      if self._offset_filter.x < 1e-3 and not self._held:
         self._interacting = False
 
   def _handle_mouse_event(self, mouse_event: MouseEvent):
@@ -98,24 +119,28 @@ class BookmarkIcon(Widget):
       self._swipe_current_x = mouse_event.pos.x
       self._is_swiping = True
       self._is_swiping_left = False
+      self._press_time = rl.get_time()
+      self._press_y = mouse_event.pos.y
       self._state = BookmarkState.DRAGGING
 
     elif mouse_event.left_down and self._is_swiping:
       self._swipe_current_x = mouse_event.pos.x
       swipe_offset = self._swipe_start_x - self._swipe_current_x
+      if abs(swipe_offset) > self.HOLD_SLOP or abs(mouse_event.pos.y - self._press_y) > self.HOLD_SLOP:
+        self._press_time = None
       self._is_swiping_left = swipe_offset > 0
       if self._is_swiping_left:
         self._interacting = True
 
     elif mouse_event.left_released:
+      self._press_time = None
+      self._held = False
       if self._is_swiping:
         swipe_distance = self._swipe_start_x - self._swipe_current_x
 
         # If peeking past threshold, transition to animating to fully visible and bookmark
         if swipe_distance > self.PEEK_THRESHOLD:
-          self._state = BookmarkState.TRIGGERED
-          self._triggered_time = rl.get_time()
-          self._bookmark_callback()
+          self._trigger()
         else:
           # Otherwise, transition back to hidden
           self._state = BookmarkState.HIDDEN
