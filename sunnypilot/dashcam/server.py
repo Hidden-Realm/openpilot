@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """
-Wi-Fi viewer for saved dash cam clips. Runs only while the car is off.
+Wi-Fi viewer for saved dash cam clips. Runs whenever the device is on, including
+while driving, so clips can be saved to a phone without turning the car off. A clip
+can be downloaded once the minute after its press has been recorded.
 
 Open it by scanning the QR code under settings -> dash cam on the device. The
 phone must be on the device's hotspot or the same Wi-Fi network as the device.
@@ -19,7 +21,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from openpilot.sunnypilot.dashcam.clips import CAMERAS, Clip, ClipStore, clip_bytes, clip_cameras
 from openpilot.sunnypilot.dashcam.export import export_clip, make_thumbnail
 from openpilot.sunnypilot.dashcam.hold import WHEEL_BUTTONS, set_wheel_button, wheel_button
-from openpilot.sunnypilot.dashcam.upload import STATE_FILE, check_servers, load_config, read_status, update_config
+from openpilot.sunnypilot.dashcam.upload import STATE_FILE, check_servers, clip_finished, load_config, read_status, update_config
 from openpilot.sunnypilot.dashcam.viewer_url import PORT, get_token
 
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
@@ -62,6 +64,7 @@ CODE_PAGE = """<!doctype html>
   </form>
 </main></body></html>
 """
+STILL_RECORDING = "Still recording. It can be saved about a minute after you saved the clip."
 WRONG_CODE_HTML = '<p class="wrong">That code didn\'t match. Check the device screen and try again.</p>'
 
 
@@ -70,16 +73,21 @@ def normalize_code(code: str) -> str:
 
 
 class Viewer:
-  def __init__(self, store: ClipStore, roots: list[str], token: str):
+  def __init__(self, store: ClipStore, roots: list[str], token: str, current_route=lambda: None):
     self.store = store
     self.roots = roots
     self.token = token
+    self.current_route = current_route  # the drive being recorded now, None when parked
     self._locks: dict[str, threading.Lock] = {}
     self._locks_lock = threading.Lock()
 
   def _lock(self, key: str) -> threading.Lock:
     with self._locks_lock:
       return self._locks.setdefault(key, threading.Lock())
+
+  def recording(self, clip: Clip) -> bool:
+    """The minute after the press is still being recorded; exporting now would cut it short."""
+    return not clip_finished(clip, self.current_route(), self.roots[0])
 
   def clip_info(self, clip: Clip, upload_state: dict) -> dict:
     return {
@@ -89,6 +97,7 @@ class Viewer:
       "cameras": [CAMERAS[c] for c in clip_cameras(clip, self.roots)],
       "bytes": clip_bytes(clip, self.roots),
       "uploaded": "done" in upload_state.get(clip.id, []),
+      "recording": self.recording(clip),
     }
 
   def upload_state(self) -> dict:
@@ -260,6 +269,8 @@ def make_handler(viewer: Viewer):
       m = re.fullmatch(r"/video/([\w.-]+)/(\w+)\.mp4", path)
       if m:
         clip = viewer.store.get(m.group(1))
+        if clip and viewer.recording(clip):
+          return self._send(409, STILL_RECORDING.encode(), "text/plain")
         mp4 = viewer.export(clip, m.group(2)) if clip else None
         if mp4 is None:
           return self._send(404, b"video not found", "text/plain")
@@ -278,6 +289,8 @@ def make_handler(viewer: Viewer):
       m = re.fullmatch(r"/api/clips/([\w.-]+)/prepare/(\w+)", path)
       if m:
         clip = viewer.store.get(m.group(1))
+        if clip and viewer.recording(clip):
+          return self._json({"error": STILL_RECORDING}, 409)
         mp4 = viewer.export(clip, m.group(2)) if clip else None
         if mp4 is None:
           return self._json({"error": "no video for this clip"}, 404)
@@ -317,13 +330,20 @@ def serve(viewer: Viewer, host: str = "0.0.0.0", port: int = PORT) -> ThreadingH
 
 
 def main():
+  from openpilot.common.params import Params
   from openpilot.common.swaglog import cloudlog
   from openpilot.sunnypilot.dashcam.clips import dashcam_root, log_roots
 
+  try:
+    os.nice(10)  # also runs while driving; never compete with driving processes
+  except (AttributeError, OSError):
+    pass
+
+  params = Params()
   root = dashcam_root()
   store = ClipStore(root)
   store.clear_exports()
-  viewer = Viewer(store, log_roots(), get_token(root))
+  viewer = Viewer(store, log_roots(), get_token(root), lambda: params.get("CurrentRoute"))
   httpd = serve(viewer)
   cloudlog.warning(f"dashcam viewer listening on port {PORT}")
   try:

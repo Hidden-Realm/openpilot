@@ -163,7 +163,8 @@ function renderClip(clip) {
   const camText = cams.length ? cams.length + (cams.length === 1 ? ' camera' : ' cameras') : 'video missing';
 
   const row = el('div', { class: 'row' });
-  for (const cam of cams) {
+  if (clip.recording) row.append(el('button', { disabled: '' }, 'Still recording…'));
+  for (const cam of clip.recording ? [] : cams) {
     const label = cams.length > 1 ? `Save ${cam}` : 'Save';
     const save = el('button', {}, label);
     save.onclick = async () => {
@@ -176,7 +177,7 @@ function renderClip(clip) {
     };
     row.append(save);
   }
-  if (cams.length) {
+  if (cams.length && !clip.recording) {
     const watch = el('button', { class: 'secondary' }, 'Watch');
     watch.onclick = async () => {
       watch.disabled = true; watch.textContent = 'Preparing…'; err.textContent = '';
@@ -200,6 +201,7 @@ function renderClip(clip) {
 
   const when = el('div', { class: 'when' }, fmtWhen(clip.created));
   if (clip.uploaded) when.append(el('span', { class: 'badge' }, 'Uploaded'));
+  if (clip.recording) when.append(el('span', { class: 'badge' }, 'Recording'));
   card.append(thumb, el('div', { class: 'body' },
     when,
     el('div', { class: 'meta' }, `${fmtDur(clip.duration)} · ${camText} · ${fmtBytes(clip.bytes)}`),
@@ -217,16 +219,19 @@ async function load() {
     document.getElementById('storage-text').textContent =
       `${clips.length} saved ${clips.length === 1 ? 'clip' : 'clips'} · ${fmtBytes(saved_bytes)} · ${fmtBytes(storage.free)} free`;
     document.getElementById('storage-bar').style.width = storage.total ? (100 * used / storage.total) + '%' : '0';
-    if (!list.children.length || list.dataset.count != clips.length) {
+    // redraw when a clip is added, removed, or finishes recording
+    const key = clips.map(c => c.id + (c.recording ? '*' : '')).join(',');
+    if (!list.children.length || list.dataset.key !== key) {
       list.replaceChildren(...(clips.length ? clips.map(renderClip)
         : [el('div', { class: 'empty' }, 'No saved clips yet. While driving, hold the steering wheel button you picked under "Saving a clip while driving", or hold a finger on the comma screen, for a second to save one.')]));
-      list.dataset.count = clips.length;
+      list.dataset.key = key;
     }
   } catch {
-    document.getElementById('storage-text').textContent = "Can't reach the device. Is the car still off?";
+    document.getElementById('storage-text').textContent = "Can't reach the device. Is it on, and is your phone on its Wi-Fi?";
   }
 }
 load();
+setInterval(load, 10000);
 
 // ---- upload settings
 const form = document.getElementById('upload-form');

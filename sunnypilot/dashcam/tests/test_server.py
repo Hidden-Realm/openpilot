@@ -87,6 +87,24 @@ def test_lists_clips(viewer):
   assert data["clips"][0]["cameras"] == []  # no camera files yet
 
 
+def test_clip_cannot_be_saved_until_the_minute_after_is_recorded(viewer):
+  v, clip, log_root, base = viewer
+  v.current_route = lambda: ROUTE  # driving, and segment 6 (the minute after the press) is the newest
+
+  data = json.loads(request(f"{base}/api/clips", headers=AUTH)[2])
+  assert data["clips"][0]["recording"]
+  status, _, body = request(f"{base}/api/clips/{clip.id}/prepare/road", method="POST", headers=AUTH)
+  assert status == 409 and "Still recording" in json.loads(body)["error"]
+  assert request(f"{base}/video/{clip.id}/road.mp4", headers=AUTH)[0] == 409
+
+  (log_root / f"{ROUTE}--7").mkdir()
+  assert not json.loads(request(f"{base}/api/clips", headers=AUTH)[2])["clips"][0]["recording"]
+
+  # a clip from an earlier drive is finished even though the new drive is recording
+  v.current_route = lambda: "0000002b--aaaaaaaaaa"
+  assert not v.recording(clip)
+
+
 def test_delete(viewer):
   v, clip, _, base = viewer
   assert request(f"{base}/api/clips/{clip.id}/delete", method="POST", headers=AUTH)[0] == 200

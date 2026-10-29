@@ -7,7 +7,6 @@ import qrcode
 
 from openpilot.common.swaglog import cloudlog
 from openpilot.selfdrive.ui.mici.widgets.button import BigButton
-from openpilot.selfdrive.ui.ui_state import ui_state
 from openpilot.sunnypilot.dashcam.clips import ClipStore, dashcam_root
 from openpilot.sunnypilot.dashcam.viewer_url import PORT, TETHERING_IP, get_token, viewer_url, wifi_qr_payload, wlan_ip
 from openpilot.system.ui.lib.application import FontWeight, gui_app
@@ -83,10 +82,7 @@ class DashcamDialog(NavWidget):
     count = f"{clips} saved clip{'s' if clips != 1 else ''}"
     ip = wlan_ip()
 
-    if ui_state.started:
-      self._set_qr(None)
-      self._body.set_text(f"{count}\n\nturn the car off to download them")
-    elif ip is None:
+    if ip is None:
       self._set_qr(None)
       self._body.set_text(f"{count}\n\nturn on tethering in network settings, or join the same Wi-Fi as your phone")
     else:
