@@ -469,6 +469,23 @@ function fillInfo() {
   $("t-objs").innerHTML = objs.length ? objs.map((o) =>
     `<tr><td>${o.kind}${o.light && o.light !== "none" ? ` (${o.light})` : ""} · ${o.cam}</td><td>${fmt(o.x, 0)} m ahead, ${fmt(Math.abs(o.y), 1)} m ${o.y >= 0 ? "right" : "left"}</td></tr>`).join("")
     : `<tr><td>nothing tracked</td><td></td></tr>`;
+  const sw = L.software || {};
+  const running = sw.updaterRunning;
+  const updater = sw.disabled ? "turned off (Disable Updates is on)"
+    : running === null || running === undefined ? "--"
+    : running ? (sw.state || "starting")
+    : `not running${sw.updaterExit !== null && sw.updaterExit !== undefined ? ` (exit ${sw.updaterExit})` : ""}`;
+  rows("t-sw", [
+    ["Installed", sw.branch ? `${sw.branch} @ ${sw.commit}` : "--"],
+    ["Switching to", sw.target && sw.target !== sw.branch ? sw.target : "--"],
+    ["Updater", updater],
+    ["Update", sw.installReady ? "ready: tap update now" : sw.downloadReady ? "available: tap download update" : "nothing new"],
+    ["Failed checks", sw.failed ?? "--"],
+    ["Last update", sw.lastUpdate || "--"],
+  ]);
+  $("sw-note").textContent = sw.disabled ? "Turn updates back on in sunnylink (or the Software settings) to update." :
+    sw.error ? `Last updater error: ${sw.error}` :
+    running === false ? "The updater only runs with the car off or in always offroad mode." : "";
   rows("t-data", [["Tiles", p.tiles ?? "--"], ["Size", p.mapBytes !== undefined ? mb(p.mapBytes) : "--"], ["Limit", "10 GB (oldest roads go first)"]]);
 }
 

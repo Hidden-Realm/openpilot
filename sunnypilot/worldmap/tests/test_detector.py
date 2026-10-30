@@ -33,6 +33,28 @@ def test_night_frames_are_brightened():
   assert not yolo.from_rgb(np.full((760, 1344, 3), 140, np.uint8)).night
 
 
+def test_camera_buffer_matches_rgb():
+  """The device path (NV12 camera buffer with row stride) sees the same picture as the RGB path."""
+  rng = np.random.default_rng(0)
+  # blocks of color, like a real scene; per-pixel noise can't survive NV12's half-resolution color
+  blocks = rng.integers(30, 220, (19, 42, 3)).astype(np.uint8)
+  rgb = np.kron(blocks, np.ones((40, 32, 1), np.uint8))
+  rgb[200:400, 300:700] = (200, 40, 40)
+  r, g, b = (rgb[:, :, i].astype(np.float32) for i in range(3))
+  y = np.clip(16 + 0.257 * r + 0.504 * g + 0.098 * b, 0, 255)
+  u = np.clip(128 - 0.148 * r - 0.291 * g + 0.439 * b, 0, 255)
+  v = np.clip(128 + 0.439 * r - 0.368 * g - 0.071 * b, 0, 255)
+  stride = 1408
+  buf = np.zeros(stride * 760 * 3 // 2, np.uint8)
+  buf[:stride * 760].reshape(760, stride)[:, :1344] = y.astype(np.uint8)
+  uv = np.stack([u[::2, ::2], v[::2, ::2]], axis=-1).astype(np.uint8).reshape(380, 1344)
+  buf[stride * 760:].reshape(380, stride)[:, :1344] = uv
+  a = yolo.from_nv12(buf, 1344, 760, stride, stride * 760)
+  b2 = yolo.from_rgb(rgb)
+  assert a.tensor.shape == b2.tensor.shape
+  assert np.mean(np.abs(a.rgb.astype(np.float32) - b2.rgb.astype(np.float32))) < 6.0
+
+
 def test_ground_ranging():
   geom = CameraGeometry(1344, 760, 1141.5, [0.0, 0.0, 0.0], 1.3)
   # a point 20 m ahead on the road sits f*h/d pixels below the image center

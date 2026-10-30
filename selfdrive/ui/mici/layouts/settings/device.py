@@ -275,7 +275,9 @@ class UpdateOpenpilotBigButton(BigButton):
 
     elif self._state == UpdaterState.WAITING_FOR_UPDATER:
       self.set_rotate_icon(True)
-      if updater_state != "idle":
+      # no state at all means the updater never started (or updates are turned off): that isn't a response,
+      # and treating it as one used to leave the icon spinning forever
+      if updater_state not in ("idle", ""):
         self._state = UpdaterState.UPDATER_RESPONDING
 
       # Recover from updater not responding (time invalid shortly after boot)
@@ -284,9 +286,21 @@ class UpdateOpenpilotBigButton(BigButton):
 
       if self._waiting_for_updater_t is not None and rl.get_time() - self._waiting_for_updater_t > UPDATER_TIMEOUT:
         self.set_rotate_icon(False)
-        self.set_value("updater failed\nto respond")
+        if ui_state.params.get_bool("DisableUpdates"):
+          self.set_value("updates are\nturned off")
+        elif not updater_state:
+          self.set_value("updater not\nrunning")
+        else:
+          self.set_value("updater failed\nto respond")
         self._state = UpdaterState.IDLE
         self._hide_value_t = rl.get_time()
+
+    elif self._state == UpdaterState.UPDATER_RESPONDING and not updater_state:
+      # the updater went away mid-check
+      self.set_rotate_icon(False)
+      self.set_value("updater\nstopped")
+      self._state = UpdaterState.IDLE
+      self._hide_value_t = rl.get_time()
 
     elif self._state == UpdaterState.UPDATER_RESPONDING:
       if updater_state == "idle":

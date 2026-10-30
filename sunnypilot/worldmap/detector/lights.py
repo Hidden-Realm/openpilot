@@ -5,8 +5,9 @@ A lit lamp is a bright, saturated blob. Bright saturated pixels are counted by h
 amber, then green/cyan for LED greens), and the color with the clear majority wins. Few lit pixels, or no
 clear winner, means unknown: better to show nothing than the wrong color.
 """
-import cv2
 import numpy as np
+
+from openpilot.sunnypilot.worldmap.imgops import rgb_to_hsv
 
 MIN_LIT_FRACTION = 0.03
 MIN_MARGIN = 1.5
@@ -20,16 +21,16 @@ def light_color(rgb: np.ndarray, box: np.ndarray, scale: float) -> str:
   y0, y1 = max(y0, 0), min(y1, h)
   if x1 - x0 < 2 or y1 - y0 < 3:
     return "none"
-  hsv = cv2.cvtColor(np.ascontiguousarray(rgb[y0:y1, x0:x1]), cv2.COLOR_RGB2HSV)
+  hsv = rgb_to_hsv(rgb[y0:y1, x0:x1])
   hue, sat, val = hsv[:, :, 0].astype(np.int32), hsv[:, :, 1], hsv[:, :, 2]
   lit = (val > 150) & (sat > 90)
   if lit.mean() < MIN_LIT_FRACTION:
     return "none"
-  hl = hue[lit]  # OpenCV hue is 0..179
+  hl = hue[lit]  # Pillow hue is 0..255 for the full circle
   counts = {
-    "red": int(np.sum((hl <= 8) | (hl >= 165))),
-    "yellow": int(np.sum((hl > 12) & (hl <= 32))),
-    "green": int(np.sum((hl > 45) & (hl <= 100))),
+    "red": int(np.sum((hl <= 11) | (hl >= 234))),
+    "yellow": int(np.sum((hl > 17) & (hl <= 45))),
+    "green": int(np.sum((hl > 64) & (hl <= 142))),
   }
   best = max(counts, key=lambda k: counts[k])
   rest = max(v for k, v in counts.items() if k != best)

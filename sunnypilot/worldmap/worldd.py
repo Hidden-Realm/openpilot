@@ -22,6 +22,7 @@ from openpilot.sunnypilot.worldmap.tiles import TileStore, worldmap_root
 PARAMS_PERIOD = 2.0
 STATS_PERIOD = 30.0
 FLUSH_PERIOD = 10.0        # the device loses power with the car, so at most this much mapping is lost
+SOFTWARE_PERIOD = 5.0
 SLOW_UPDATE_MS = 60.0      # above this (averaged), map at 5 Hz instead of 10 to leave the CPU to driving
 
 
@@ -59,6 +60,28 @@ def publish(pm: messaging.PubMaster, builder: WorldBuilder, out: dict) -> None:
   pm.send('worldMapSP', msg)
 
 
+def software_status(params: Params, sm: messaging.SubMaster) -> dict:
+  """Branch and updater health for the viewer's Info tab, so a stuck software update can be seen from the iPad."""
+  updated = None
+  if sm.seen['managerState']:
+    updated = next((p for p in sm['managerState'].processes if p.name == "updated"), None)
+  last = params.get("LastUpdateTime")
+  return {
+    "branch": params.get("GitBranch") or "",
+    "commit": (params.get("GitCommit") or "")[:7],
+    "target": params.get("UpdaterTargetBranch") or "",
+    "updaterRunning": None if updated is None else bool(updated.running),
+    "updaterExit": None if updated is None or updated.running else int(updated.exitCode),
+    "state": params.get("UpdaterState") or "",
+    "disabled": params.get_bool("DisableUpdates"),
+    "failed": int(params.get("UpdateFailedCount") or 0),
+    "error": (params.get("LastUpdateException") or "")[-400:],
+    "downloadReady": params.get_bool("UpdaterFetchAvailable"),
+    "installReady": params.get_bool("UpdateAvailable"),
+    "lastUpdate": last.isoformat(timespec="minutes") if last is not None else "",
+  }
+
+
 def save_stats(params: Params, stats: QualifyStats) -> None:
   params.put("WorldMapStats", stats.to_dict())
   params.put_bool("WorldMapQualified", stats.qualified)
@@ -89,11 +112,13 @@ def main():
   threading.Thread(target=flusher, daemon=True).start()
 
   pm = messaging.PubMaster(['worldMapSP'])
-  sm = messaging.SubMaster(['modelV2', 'carState', 'livePose', 'gpsLocationExternal', 'liveLocationKalman', 'worldObjectsSP'],
-                           poll='modelV2')
+  sm = messaging.SubMaster(['modelV2', 'carState', 'livePose', 'gpsLocationExternal', 'liveLocationKalman', 'worldObjectsSP',
+                            'managerState'], poll='modelV2')
   steer_enabled = False
   last_params = 0.0
   last_stats = time.monotonic()
+  last_software = 0.0
+  last_model = -1e9
   v_ego = 0.0
   every = 2          # model frames per map update
   slow_ms = 0.0
@@ -106,6 +131,11 @@ def main():
       if now - last_params > PARAMS_PERIOD:
         steer_enabled = params.get_bool("WorldMapSteer")
         last_params = now
+      if now - last_software > SOFTWARE_PERIOD:
+        builder.software = software_status(params, sm)
+        if now - last_model > 2.0:
+          builder.refresh_idle_snapshot()  # parked or always-offroad: keep the viewer's Info tab current
+        last_software = now
 
       if sm.updated['carState']:
         v_ego = sm['carState'].vEgo
@@ -117,6 +147,7 @@ def main():
         builder.on_objects(sm.logMonoTime['worldObjectsSP'] * 1e-9, sm['worldObjectsSP'])
       if not sm.updated['modelV2']:
         continue
+      last_model = now
 
       t = sm.logMonoTime['modelV2'] * 1e-9
       yaw_rate = sm['livePose'].angularVelocityDevice.z if sm.seen['livePose'] else 0.0

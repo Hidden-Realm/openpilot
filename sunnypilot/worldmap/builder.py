@@ -17,10 +17,10 @@ import math
 import time
 from collections import deque
 
-import cv2
 import numpy as np
 
 from openpilot.sunnypilot.worldmap import geo
+from openpilot.sunnypilot.worldmap.imgops import draw_mask
 from openpilot.sunnypilot.worldmap.align import Aligner, AlignResult
 from openpilot.sunnypilot.worldmap.geo import car_to_en
 from openpilot.sunnypilot.worldmap.mappath import MapPath, curvature_ahead, follow, lateral_error
@@ -74,6 +74,7 @@ class WorldBuilder:
     self.update_ms = 0.0
     self.live: dict = {"valid": False}
     self.out: dict = {"valid": False}
+    self.software: dict = {}
 
   # ---- inputs between model frames
   def on_motion(self, t: float, v_ego: float, yaw_rate: float) -> None:
@@ -390,6 +391,16 @@ class WorldBuilder:
       live["align"] = {"quality": round(self.align.quality, 2), "converged": self.align.converged(h),
                        "e": round(float(self.align.corr[0]), 2), "n": round(float(self.align.corr[1]), 2)}
       live["stops"] = self.stops_near(e, n)
+    live["software"] = self.software
+    self.live = live
+
+  def refresh_idle_snapshot(self) -> None:
+    """With no driving model running there are no frames to snapshot; still publish stats and software status."""
+    live = dict(self.live)
+    live["software"] = self.software
+    live["perf"] = {**live.get("perf", {}), "tiles": len(self.store.keys()), "mapBytes": self.store.total_bytes}
+    live["steer"] = {**live.get("steer", {}), "qualified": self.stats.qualified, "comparedKm": round(self.stats.compared_km, 2),
+                     "agreedKm": round(self.stats.agreed_km, 2), "kmToGo": round(self.stats.km_to_go(), 2), "ratio": round(self.stats.ratio, 3)}
     self.live = live
 
 
@@ -427,12 +438,7 @@ def _stamp(tile, layer: str, cols: np.ndarray, rows: np.ndarray, kind: str, widt
   r1 = int(min(np.ceil(rows.max()) + pad, size))
   if c1 <= c0 or r1 <= r0:
     return None
-  mask = np.zeros((r1 - r0, c1 - c0), np.uint8)
-  pts = np.round(np.stack([cols - c0, rows - r0], axis=1) * 4).astype(np.int32)  # quarter-pixel precision
-  if kind == "fill":
-    cv2.fillPoly(mask, [pts], 1, lineType=cv2.LINE_8, shift=2)
-  else:
-    cv2.polylines(mask, [pts], False, 1, thickness=width, lineType=cv2.LINE_8, shift=2)
+  mask = draw_mask(r1 - r0, c1 - c0, cols - c0, rows - r0, kind, width)
   if not mask.any():
     return None
   rs, cs = slice(r0, r1), slice(c0, c1)

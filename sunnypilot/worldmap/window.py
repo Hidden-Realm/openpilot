@@ -10,10 +10,10 @@ of seconds the stored map around the car is resampled into one grid in the live 
   heat       smoothed count of passes the car drove over a cell, for path following
   dir_e/n    the average driving direction there (unit vector)
 """
-import cv2
 import numpy as np
 
 from openpilot.sunnypilot.worldmap.geo import CELL_M, LocalFrame, group_by_tile, ll_to_tile_px, DLAT
+from openpilot.sunnypilot.worldmap.imgops import distance_to, gaussian_blur, resample
 from openpilot.sunnypilot.worldmap.tiles import TileStore
 
 WINDOW_M = 192.0
@@ -80,12 +80,12 @@ class MapWindow:
       sc1 = int(min(np.ceil(tcol[c0:c1].max()) + 2, size))
       sr0 = int(max(np.floor(trow.min()) - 1, 0))
       sr1 = int(min(np.ceil(trow.max()) + 2, size))
-      map_x = np.broadcast_to(tcol[c0:c1][None, :] - 0.5 - sc0, (r1 - r0, c1 - c0)).astype(np.float32)
-      map_y = np.broadcast_to(trow[:, None] - 0.5 - sr0, (r1 - r0, c1 - c0)).astype(np.float32)
+      at_cols = tcol[c0:c1] - 0.5 - sc0   # pixel-center positions inside the sub-rectangle
+      at_rows = trow - 0.5 - sr0
       src = (slice(sr0, sr1), slice(sc0, sc1))
 
-      def sample(arr, src=src, map_x=map_x, map_y=map_y):
-        return cv2.remap(arr[src].astype(np.float32), map_x, map_y, cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=0)
+      def sample(arr, src=src, at_rows=at_rows, at_cols=at_cols):
+        return resample(arr[src], at_rows, at_cols)
 
       prior = tile.prior(self.now)
       seen = sample(prior["seen"])
@@ -97,16 +97,15 @@ class MapWindow:
     self.passes = max(passes) if passes else 0
 
   def _derive(self) -> None:
-    strong = (self.structure >= STRUCT_MIN).astype(np.uint8)
+    strong = self.structure >= STRUCT_MIN
     self.has_structure = int(strong.sum())
     if self.has_structure:
-      self.dist = cv2.distanceTransform(1 - strong, cv2.DIST_L2, 3).astype(np.float32) * CELL_M
-      np.minimum(self.dist, DIST_CAP, out=self.dist)
+      self.dist = distance_to(strong, int(DIST_CAP / CELL_M)) * CELL_M
     else:
       self.dist = np.full(self.structure.shape, DIST_CAP, np.float32)
-    self.heat = cv2.GaussianBlur(self.drive, (0, 0), HEAT_SIGMA) / PASS_HEAT   # about 1.0 per pass on the ridge top
-    de = cv2.GaussianBlur(self.dir_e, (0, 0), HEAT_SIGMA)
-    dn = cv2.GaussianBlur(self.dir_n, (0, 0), HEAT_SIGMA)
+    self.heat = gaussian_blur(self.drive, HEAT_SIGMA) / PASS_HEAT   # about 1.0 per pass on the ridge top
+    de = gaussian_blur(self.dir_e, HEAT_SIGMA)
+    dn = gaussian_blur(self.dir_n, HEAT_SIGMA)
     norm = np.hypot(de, dn)
     dir_ok = norm > 0.3 * PASS_HEAT   # a consistent direction from at least about a third of a pass
     norm = np.maximum(norm, 1e-6)

@@ -20,10 +20,10 @@ from collections import OrderedDict
 from http import cookies
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-import cv2
 import numpy as np
 
 from openpilot.sunnypilot.worldmap import geo
+from openpilot.sunnypilot.worldmap.imgops import png_rgba
 from openpilot.sunnypilot.worldmap.tiles import Tile, TileStore, parse_key
 
 PORT = 8100
@@ -76,9 +76,7 @@ def tile_png(tile: Tile) -> bytes:
     return np.clip(tile.layers[name].astype(np.float32) / denom * gain * 255.0, 0, 255).astype(np.uint8)
 
   observed = np.clip(seen / 4.0 * 255.0, 0, 255).astype(np.uint8)
-  bgra = np.dstack([ratio("lane", 2.5), ratio("edge", 2.5), ratio("road", 1.0), observed])
-  ok, buf = cv2.imencode(".png", bgra, [cv2.IMWRITE_PNG_COMPRESSION, 3])
-  return buf.tobytes() if ok else b""
+  return png_rgba(np.dstack([ratio("road", 1.0), ratio("edge", 2.5), ratio("lane", 2.5), observed]))
 
 
 def tile_version(store: TileStore, key: tuple[int, int]) -> str:
