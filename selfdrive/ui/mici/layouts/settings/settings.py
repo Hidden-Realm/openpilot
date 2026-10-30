@@ -1,13 +1,13 @@
 from openpilot.common.params import Params
 from openpilot.system.ui.widgets.scroller import NavScroller
-from openpilot.selfdrive.ui.mici.widgets.button import BigButton
+from openpilot.selfdrive.ui.mici.widgets.button import BigButton, BigParamControl
 from openpilot.selfdrive.ui.mici.layouts.settings.toggles import TogglesLayoutMici
 from openpilot.selfdrive.ui.mici.layouts.settings.network.network_layout import NetworkLayoutMici
 from openpilot.selfdrive.ui.mici.layouts.settings.device import DeviceLayoutMici, PairBigButton
 from openpilot.selfdrive.ui.mici.layouts.settings.developer import DeveloperLayoutMici
 from openpilot.selfdrive.ui.mici.layouts.settings.firehose import FirehoseLayout
 from openpilot.selfdrive.ui.mici.layouts.settings.dashcam import DashcamBigButton
-from openpilot.selfdrive.ui.mici.layouts.settings.worldview import WorldViewBigButton
+from openpilot.selfdrive.ui.mici.layouts.settings.worldview import DetectorToggle, WorldViewBigButton
 from openpilot.system.ui.lib.application import gui_app, FontWeight
 
 
@@ -48,6 +48,8 @@ class SettingsLayout(NavScroller):
       PairBigButton(),
       DashcamBigButton(network_panel._wifi_manager),
       WorldViewBigButton(network_panel._wifi_manager),
+      BigParamControl("3D world map", "WorldMapEnabled"),
+      DetectorToggle(),
       #BigDialogButton("manual", "", "icons_mici/settings/manual_icon.png", "Check out the mici user\nmanual at comma.ai/setup"),
       firehose_btn,
       developer_btn,

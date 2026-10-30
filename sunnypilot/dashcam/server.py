@@ -260,6 +260,10 @@ def make_handler(viewer: Viewer):
       if path == "/api/settings":
         return self._json({"wheel_button": wheel_button(viewer.store.root)})
 
+      if path == "/api/diagnostics.zip":
+        from openpilot.sunnypilot.diagnostics.logs import bundle, bundle_name, diag_dir
+        return self._send(200, bundle(diag_dir()), "application/zip", {"Content-Disposition": f'attachment; filename="{bundle_name()}"'})
+
       m = re.fullmatch(r"/thumb/([\w.-]+)\.jpg", path)
       if m:
         clip = viewer.store.get(m.group(1))

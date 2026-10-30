@@ -227,6 +227,10 @@ def make_handler(builder, store: TileStore, images: TileImages, token_fn, on_era
           return self._send(404, b"", "image/png")
         return self._send(200, png, "image/png", {"Cache-Control": "no-cache"})
 
+      if path == "/api/diagnostics.zip":
+        from openpilot.sunnypilot.diagnostics.logs import bundle, bundle_name, diag_dir
+        return self._send(200, bundle(diag_dir()), "application/zip", {"Content-Disposition": f'attachment; filename="{bundle_name()}"'})
+
       if path == "/api/stats":
         return self._json({"tiles": len(store.keys()), "bytes": store.total_bytes, "limit": store.limit_bytes,
                            "steer": builder.live.get("steer", {})})

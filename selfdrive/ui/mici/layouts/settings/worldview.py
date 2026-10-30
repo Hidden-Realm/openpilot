@@ -33,7 +33,9 @@ class WorldViewDialog(DashcamDialog):
 
   def _summary(self) -> str:
     qualified, compared, _ = map_status(self._params)
-    return "map steering ready" if qualified else f"{compared:.1f} km compared"
+    version = (self._params.get("GitCommit") or "")[:7]
+    status = "map steering ready" if qualified else f"{compared:.1f} km compared"
+    return f"{status}\nversion {version}" if version else status
 
   def _url(self, ip: str) -> str:
     return f"http://{ip}:{WORLD_PORT}/?k={self._token}"

@@ -82,3 +82,15 @@ def test_erase_needs_confirmation(world):
                          data=json.dumps({"confirm": "erase"}).encode())
   assert status == 200 and erased and store.keys() == [] and not b.stats.qualified
   assert np.isfinite(b.stats.compared_km)
+
+
+def test_diagnostics_download(world, tmp_path, monkeypatch):
+  _, _, base, _ = world
+  from openpilot.sunnypilot.diagnostics import logs
+  (tmp_path / "diag").mkdir()
+  (tmp_path / "diag" / "diag_1.jsonl").write_text('{"type": "header"}\n')
+  monkeypatch.setattr(logs, "diag_dir", lambda: str(tmp_path / "diag"))
+  assert request(f"{base}/api/diagnostics.zip")[0] == 403
+  status, headers, body = request(f"{base}/api/diagnostics.zip", headers=AUTH)
+  assert status == 200 and headers["Content-Type"] == "application/zip" and "attachment" in headers["Content-Disposition"]
+  assert body[:2] == b"PK"

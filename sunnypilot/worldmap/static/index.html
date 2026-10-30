@@ -71,6 +71,8 @@
   #info td:last-child { text-align: right; color: var(--text); }
   #info td:first-child { color: var(--muted); }
   #info .note { color: var(--muted); font-size: 13px; margin: 6px 0; }
+  .btn { display: block; text-align: center; text-decoration: none; border: 1px solid rgba(45, 212, 191, 0.45); color: var(--teal);
+         font-weight: 600; border-radius: 10px; padding: 11px 14px; min-height: 44px; }
   #erase { appearance: none; border: 1px solid rgba(248, 113, 113, 0.4); background: transparent; color: var(--red); font: inherit;
            font-weight: 600; border-radius: 10px; padding: 10px 14px; margin-top: 10px; width: 100%; min-height: 44px; }
   #offline { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; pointer-events: none; }
@@ -127,6 +129,9 @@
   <h2>Software updates</h2>
   <table id="t-sw"></table>
   <p class="note" id="sw-note"></p>
+  <h2>Diagnostics</h2>
+  <p class="note">A record of alerts, errors, crashes and system load from recent drives, for troubleshooting. It has no GPS positions.</p>
+  <a id="diag" class="btn" href="/api/diagnostics.zip" download>Download diagnostics log</a>
   <h2>Map data</h2>
   <table id="t-data"></table>
   <button id="erase">Erase the whole map</button>
@@ -134,6 +139,6 @@
 
 <div id="offline"><div class="card"><b>Waiting for the car</b><p class="note" id="offline-note">The live view starts when the car is on.</p></div></div>
 
-<script type="module" src="/static/app.js?v=9"></script>
+<script type="module" src="/static/app.js?v=10"></script>
 </body>
 </html>

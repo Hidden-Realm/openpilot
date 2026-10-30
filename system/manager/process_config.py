@@ -202,6 +202,9 @@ procs += [
   # world map: builds a map of driven roads, serves the 3D viewer, and offers map steering once it qualifies
   PythonProcess("worldd", "sunnypilot.worldmap.worldd", world_map),
   PythonProcess("worldobjectsd", "sunnypilot.worldmap.detector.detectord", world_detector, enabled=TICI),
+
+  # diagnostics recorder: alerts, errors, crashes and system load, downloadable from the Wi-Fi viewers
+  PythonProcess("diagd", "sunnypilot.diagnostics.diagd", always_run),
 ]
 
 if os.path.exists("./github_runner.sh"):
