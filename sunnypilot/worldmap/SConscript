@@ -1,0 +1,18 @@
+import glob
+
+Import('env', 'arch')
+
+# The world map detector only runs on the device, so it is only compiled there. compile_detector.py never
+# fails the build: without a compiled model the detector just stays off.
+if arch == 'larch64':
+  lenv = env.Clone()
+  tinygrad_files = ["#" + x for x in glob.glob(env.Dir("#tinygrad_repo").relpath + "/**", recursive=True, root_dir=env.Dir("#").abspath)
+                    if 'pycache' not in x]
+  tg_flags = 'DEV=QCOM IMAGE=1 FLOAT16=1 NOLOCALS=1 JIT_BATCH_SIZE=0 OPENPILOT_HACKS=1'
+  pythonpath = 'PYTHONPATH="${PYTHONPATH}:' + env.Dir("#tinygrad_repo").abspath + '"'
+  onnx = File("detector/models/yolo11n_448x256.onnx")
+  pkl = File("detector/models/yolo11n_448x256_tinygrad.pkl").abspath
+  script = File("detector/compile_detector.py")
+  compile3 = env.Dir("#tinygrad_repo").abspath + "/examples/openpilot/compile3.py"
+  lenv.Command(pkl, [onnx, script] + tinygrad_files,
+               f'{pythonpath} {tg_flags} python3 {script.abspath} {compile3} {onnx.abspath} {pkl}')

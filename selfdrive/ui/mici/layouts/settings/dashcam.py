@@ -43,7 +43,11 @@ class DashcamDialog(NavWidget):
   On the device's hotspot: a QR the iPhone camera uses to join the hotspot,
   then the QR that opens the viewer, then the same address and code as text
   for typing in or bookmarking. On a shared Wi-Fi network the join step is skipped.
+  Other Wi-Fi viewers (the 3D world) reuse it with their own title, port and summary.
   """
+  TITLE = "dash cam"
+  PORT = PORT
+  OPEN_TEXT = "scan to open clips"
 
   def __init__(self, wifi_manager: WifiManager):
     super().__init__()
@@ -56,7 +60,7 @@ class DashcamDialog(NavWidget):
     self._step = 0
     self._last_refresh = float("-inf")
 
-    self._title = UnifiedLabel("dash cam", font_size=48, font_weight=FontWeight.BOLD, line_height=0.8)
+    self._title = UnifiedLabel(self.TITLE, font_size=48, font_weight=FontWeight.BOLD, line_height=0.8)
     self._body = UnifiedLabel("", font_size=32, font_weight=FontWeight.MEDIUM, text_color=rl.Color(255, 255, 255, int(255 * 0.65)))
     self.set_click_callback(self._next_step)
 
@@ -77,9 +81,15 @@ class DashcamDialog(NavWidget):
     self._qr_texture = _qr_texture(payload) if payload else None
     self._qr_payload = payload
 
-  def _refresh(self) -> None:
+  def _summary(self) -> str:
     clips = len(self._store.list())
-    count = f"{clips} saved clip{'s' if clips != 1 else ''}"
+    return f"{clips} saved clip{'s' if clips != 1 else ''}"
+
+  def _url(self, ip: str) -> str:
+    return viewer_url(ip, self._token)
+
+  def _refresh(self) -> None:
+    count = self._summary()
     ip = wlan_ip()
 
     if ip is None:
@@ -94,12 +104,12 @@ class DashcamDialog(NavWidget):
         self._set_qr(wifi_qr_payload(ssid, self._wifi_manager.tethering_password))
         self._body.set_text(f"{n}scan to join\n{ssid}\n\ntap for next step")
       elif step == "open":
-        self._set_qr(viewer_url(ip, self._token))
+        self._set_qr(self._url(ip))
         where = "" if ip == TETHERING_IP else "\n(phone on same Wi-Fi)"
-        self._body.set_text(f"{n}scan to open clips{where}\n\n{count}\ntap for next step")
+        self._body.set_text(f"{n}{self.OPEN_TEXT}{where}\n\n{count}\ntap for next step")
       else:
         self._set_qr(None)
-        self._body.set_text(f"{n}or in Safari go to\n{ip}:{PORT}\nand enter code  {self._token}")
+        self._body.set_text(f"{n}or in Safari go to\n{ip}:{self.PORT}\nand enter code  {self._token}")
 
   def _render(self, rect: rl.Rectangle):
     now = time.monotonic()

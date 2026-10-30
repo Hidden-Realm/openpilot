@@ -13,6 +13,7 @@ from openpilot.selfdrive.ui.mici.widgets.dialog import BigDialog, BigConfirmatio
 from openpilot.selfdrive.ui.mici.widgets.pairing_dialog import PairingDialog
 from openpilot.selfdrive.ui.mici.onroad.driver_camera_dialog import DriverCameraDialog
 from openpilot.selfdrive.ui.mici.layouts.onboarding import TrainingGuide, TermsPage
+from openpilot.selfdrive.ui.mici.layouts.settings.worldview import MapSteerToggle
 from openpilot.system.ui.lib.application import gui_app, FontWeight, MousePos
 from openpilot.system.ui.lib.multilang import tr
 from openpilot.system.ui.widgets import Widget
@@ -403,6 +404,7 @@ class DeviceLayoutMici(NavScroller):
       DeviceInfoLayoutMici(),
       update_btn,
       switch_branch_btn,
+      MapSteerToggle(),
       PairBigButton(),
       review_training_guide_btn,
       driver_cam_btn,

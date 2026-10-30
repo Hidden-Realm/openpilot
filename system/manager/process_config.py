@@ -68,6 +68,10 @@ def use_github_runner(started, params, CP: car.CarParams) -> bool:
   return not PC and params.get_bool("EnableGithubRunner") and (
     not params.get_bool("NetworkMetered") and not params.get_bool("GithubRunnerSufficientVoltage"))
 
+def drivesight_link(started, params, CP: car.CarParams) -> bool:
+  """DriveSight laptop link: stream device messages (cameras, model, car state, GPS) to the network, read-only."""
+  return params.get_bool("DriveSightLink")
+
 def use_copyparty(started, params, CP: car.CarParams) -> bool:
   return bool(params.get_bool("EnableCopyparty"))
 
@@ -156,7 +160,7 @@ procs = [
   PythonProcess("feedbackd", "selfdrive.ui.feedback.feedbackd", only_onroad),
 
   # debug procs
-  NativeProcess("bridge", "cereal/messaging", ["./bridge"], notcar),
+  NativeProcess("bridge", "cereal/messaging", ["./bridge"], or_(notcar, drivesight_link)),
   PythonProcess("webrtcd", "system.webrtc.webrtcd", notcar),
   PythonProcess("webjoystick", "tools.bodyteleop.web", notcar),
   PythonProcess("joystick", "tools.joystick.joystick_control", and_(joystick, iscar)),
@@ -187,6 +191,10 @@ procs += [
   PythonProcess("dashcamd", "sunnypilot.dashcam.dashcamd", logging),
   PythonProcess("dashcam_viewer", "sunnypilot.dashcam.server", always_run),
   PythonProcess("dashcam_uploader", "sunnypilot.dashcam.upload", always_run),
+
+  # world map: builds a map of driven roads, serves the 3D viewer, and offers map steering once it qualifies
+  PythonProcess("worldd", "sunnypilot.worldmap.worldd", always_run),
+  PythonProcess("worldobjectsd", "sunnypilot.worldmap.detector.detectord", only_onroad, enabled=TICI),
 ]
 
 if os.path.exists("./github_runner.sh"):

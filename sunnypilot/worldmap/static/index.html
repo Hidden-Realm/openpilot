@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>World View</title>
+<script type="importmap">{"imports": {"three": "/static/three.module.min.js"}}</script>
+<style>
+  :root {
+    --ink: #070b18; --ink-2: #0d1428; --panel: rgba(13, 20, 40, 0.78); --line: rgba(148, 170, 220, 0.16);
+    --text: #e8ecf6; --muted: #8e9bb8; --teal: #2dd4bf; --amber: #fbbf24; --coral: #fb7185; --steel: #94a3b8;
+    --green: #4ade80; --red: #f87171;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--ink); color: var(--text); overflow: hidden;
+               font: 15px/1.35 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+               -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }
+  #sky { position: fixed; inset: 0; background:
+         radial-gradient(120% 60% at 50% 62%, rgba(251, 146, 60, 0.16), transparent 60%),
+         linear-gradient(#060914 0%, #0b1226 55%, #0a0f1f 100%); }
+  canvas#view { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+
+  header { position: fixed; top: 0; left: 0; right: 0; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+           padding: max(12px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) 8px max(16px, env(safe-area-inset-left));
+           pointer-events: none; }
+  .brand { font-weight: 700; letter-spacing: 0.14em; font-size: 13px; text-transform: uppercase; margin-right: 6px; }
+  .brand b { color: var(--teal); }
+  .pill { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 999px; font-size: 12px;
+          font-weight: 600; letter-spacing: 0.04em; background: var(--panel); border: 1px solid var(--line); color: var(--muted);
+          backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+  .pill i { width: 7px; height: 7px; border-radius: 50%; background: var(--steel); display: inline-block; }
+  .pill.ok i { background: var(--teal); } .pill.warn i { background: var(--amber); } .pill.bad i { background: var(--red); }
+  .pill.ok { color: var(--text); }
+  .spacer { flex: 1; }
+  nav { pointer-events: auto; display: inline-flex; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 3px;
+        backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+  nav button { appearance: none; border: 0; background: transparent; color: var(--muted); font: inherit; font-weight: 600;
+               padding: 8px 14px; border-radius: 9px; min-height: 36px; }
+  nav button.on { background: rgba(45, 212, 191, 0.16); color: var(--text); }
+
+  #event { position: fixed; top: calc(max(12px, env(safe-area-inset-top)) + 52px); left: 50%; transform: translateX(-50%);
+           padding: 8px 16px; border-radius: 999px; font-weight: 700; letter-spacing: 0.08em; font-size: 13px;
+           background: var(--panel); border: 1px solid var(--line); display: none; white-space: nowrap; }
+  #event.stop { color: #fff; border-color: rgba(248, 113, 113, 0.5); background: rgba(127, 29, 29, 0.6); }
+  #event.walk { color: #1c1300; background: rgba(251, 191, 36, 0.92); }
+
+  #hud { position: fixed; left: max(16px, env(safe-area-inset-left)); bottom: max(16px, env(safe-area-inset-bottom));
+         display: flex; gap: 12px; align-items: flex-end; pointer-events: none; flex-wrap: wrap; right: max(16px, env(safe-area-inset-right)); }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 12px 16px;
+          backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
+  .speed { font-size: 46px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
+  .unit { color: var(--muted); font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; }
+  .stat { min-width: 150px; }
+  .stat .k { color: var(--muted); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; }
+  .stat .v { font-size: 18px; font-weight: 650; font-variant-numeric: tabular-nums; margin-top: 2px; }
+  .bar { height: 6px; border-radius: 3px; background: rgba(148, 170, 220, 0.18); overflow: hidden; margin-top: 6px; }
+  .bar > div { height: 100%; width: 0; background: var(--teal); transition: width 0.3s; }
+  .legend { display: flex; gap: 12px; font-size: 12px; color: var(--muted); margin-top: 6px; flex-wrap: wrap; }
+  .legend span::before { content: ""; display: inline-block; width: 14px; height: 3px; border-radius: 2px; margin-right: 6px;
+                         vertical-align: middle; background: var(--c); }
+
+  #info { position: fixed; top: calc(max(12px, env(safe-area-inset-top)) + 52px); right: max(16px, env(safe-area-inset-right));
+          bottom: max(16px, env(safe-area-inset-bottom)); width: min(420px, calc(100vw - 32px)); overflow: auto; display: none;
+          -webkit-overflow-scrolling: touch; -webkit-user-select: text; user-select: text; }
+  #info h2 { font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); margin: 14px 0 6px; }
+  #info h2:first-child { margin-top: 0; }
+  #info table { width: 100%; border-collapse: collapse; font-size: 14px; font-variant-numeric: tabular-nums; }
+  #info td { padding: 5px 0; border-bottom: 1px solid var(--line); }
+  #info td:last-child { text-align: right; color: var(--text); }
+  #info td:first-child { color: var(--muted); }
+  #info .note { color: var(--muted); font-size: 13px; margin: 6px 0; }
+  #erase { appearance: none; border: 1px solid rgba(248, 113, 113, 0.4); background: transparent; color: var(--red); font: inherit;
+           font-weight: 600; border-radius: 10px; padding: 10px 14px; margin-top: 10px; width: 100%; min-height: 44px; }
+  #offline { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; pointer-events: none; }
+  #offline .card { text-align: center; max-width: 340px; }
+  @media (max-width: 640px) { .stat { min-width: 120px; } .speed { font-size: 38px; } nav button { padding: 8px 10px; } }
+</style>
+</head>
+<body>
+<div id="sky"></div>
+<canvas id="view"></canvas>
+<header>
+  <div class="brand">DriveSight <b>World</b></div>
+  <span class="pill" id="p-link"><i></i><span>connecting</span></span>
+  <span class="pill" id="p-pose"><i></i><span>position</span></span>
+  <span class="pill" id="p-steer"><i></i><span>map steering</span></span>
+  <span class="pill" id="p-night" style="display:none"><i></i><span>night</span></span>
+  <span class="spacer"></span>
+  <nav>
+    <button data-mode="drive" class="on">Drive</button>
+    <button data-mode="map">Map</button>
+    <button data-mode="info">Info</button>
+  </nav>
+</header>
+<div id="event"></div>
+
+<div id="hud">
+  <div class="card"><div class="speed" id="speed">--</div><div class="unit">mph</div></div>
+  <div class="card stat">
+    <div class="k">Map vs model</div><div class="v" id="agree">--</div>
+    <div class="bar"><div id="agree-bar"></div></div>
+  </div>
+  <div class="card stat">
+    <div class="k">Road ahead</div><div class="v" id="mapconf">--</div>
+    <div class="legend">
+      <span style="--c: var(--teal)">model path</span>
+      <span style="--c: var(--amber)">map path</span>
+    </div>
+  </div>
+  <div class="card stat">
+    <div class="k">Around us</div><div class="v" id="around">--</div>
+  </div>
+</div>
+
+<div id="info" class="card">
+  <h2>Map steering</h2>
+  <table id="t-steer"></table>
+  <p class="note">The device settings switch unlocks once the map and the driving model agree on enough mapped road. Map steering only adds a small, capped correction on top of sunnypilot's own steering.</p>
+  <h2>Position and map</h2>
+  <table id="t-map"></table>
+  <h2>Detection</h2>
+  <table id="t-det"></table>
+  <h2>Around the car</h2>
+  <table id="t-objs"></table>
+  <h2>Map data</h2>
+  <table id="t-data"></table>
+  <button id="erase">Erase the whole map</button>
+</div>
+
+<div id="offline"><div class="card"><b>Waiting for the car</b><p class="note" id="offline-note">The live view starts when the car is on.</p></div></div>
+
+<script type="module" src="/static/app.js?v=7"></script>
+</body>
+</html>

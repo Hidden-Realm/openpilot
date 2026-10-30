@@ -482,8 +482,95 @@ struct CustomReserved16 @0xfc6241ed8877b611 {
 struct CustomReserved17 @0xa30662f84033036c {
 }
 
-struct CustomReserved18 @0xc86a3d38d13eb3ef {
+# World map (sunnypilot/worldmap/worldd.py): where the car is on its own map of roads it has driven, the road
+# ahead according to that map, how well it matches the driving model, and how much map steering is allowed.
+struct WorldMapSP @0xc86a3d38d13eb3ef {
+  valid @0 :Bool;
+  latitude @1 :Float64;
+  longitude @2 :Float64;
+  bearingDeg @3 :Float32;
+  positionStd @4 :Float32;            # meters
+  correctionLateral @5 :Float32;      # map alignment applied to GPS, meters, right positive
+  correctionLongitudinal @6 :Float32;
+  alignQuality @7 :Float32;           # 0..1, share of live lines that sit on mapped lines
+
+  mapPathValid @8 :Bool;
+  mapPathX @9 :List(Float32);         # car frame (x forward, y right), meters
+  mapPathY @10 :List(Float32);
+  mapCurvature @11 :Float32;          # 1/m, same sign as modelV2.action.desiredCurvature (right positive)
+  curvatureDelta @12 :Float32;        # map road curvature minus the model path's, by the same fit
+  mapConfidence @13 :Float32;         # 0..1, how well-trodden the road ahead is
+  agreement @14 :Float32;             # 0..1, live match between the map path and the model path
+  lateralError @15 :Float32;          # meters between the two paths, -1 when not compared
+
+  steerQualified @16 :Bool;
+  steerWeight @17 :Float32;           # 0..0.5, share of curvatureDelta controlsd may add
+  comparedKm @18 :Float32;
+  agreedKm @19 :Float32;
+
+  stopAhead @20 :Bool;                # the driving model plans to stop
+  stopDistance @21 :Float32;
+  stopKind @22 :StopKind;
+
+  night @23 :Bool;
+  processingTime @24 :Float32;        # seconds per update
+  tiles @25 :UInt32;
+  mapBytes @26 :UInt64;
+
+  enum StopKind {
+    unknown @0;
+    stopSign @1;
+    trafficLight @2;
+    lead @3;
+  }
 }
 
-struct CustomReserved19 @0xa4f1eb3323f5f582 {
+# Camera detections (sunnypilot/worldmap/detector/detectord.py): people, vehicles, signs and lights, tracked
+# in the car frame. Runs a few times a second on the road and wide cameras, backing off when the driving model
+# needs the GPU.
+struct WorldObjectsSP @0xa4f1eb3323f5f582 {
+  valid @0 :Bool;
+  detectorReady @1 :Bool;
+  night @2 :Bool;
+  objects @3 :List(WorldObject);
+  inferenceTime @4 :Float32;          # seconds per detection run
+  rateHz @5 :Float32;
+  skipped @6 :UInt32;                 # runs skipped so far to protect the driving model
+
+  struct WorldObject {
+    id @0 :UInt32;
+    kind @1 :Kind;
+    confidence @2 :Float32;
+    x @3 :Float32;                    # car frame, meters forward
+    y @4 :Float32;                    # meters right
+    vx @5 :Float32;                   # m/s, relative to the ground
+    vy @6 :Float32;
+    width @7 :Float32;                # meters
+    camera @8 :Camera;
+    lightColor @9 :LightColor;
+    age @10 :Float32;                 # seconds tracked
+  }
+
+  enum Kind {
+    person @0;
+    bicycle @1;
+    car @2;
+    motorcycle @3;
+    bus @4;
+    truck @5;
+    trafficLight @6;
+    stopSign @7;
+  }
+
+  enum Camera {
+    road @0;
+    wide @1;
+  }
+
+  enum LightColor {
+    none @0;
+    red @1;
+    yellow @2;
+    green @3;
+  }
 }
