@@ -8,12 +8,12 @@ from openpilot.common.basedir import BASEDIR
 from openpilot.common.params import Params
 from openpilot.common.time_helpers import system_time_valid
 from openpilot.system.ui.widgets.scroller import NavRawScrollPanel, NavScroller
-from openpilot.selfdrive.ui.mici.widgets.button import BigButton, BigCircleButton, COMPLICATION_GREY, LABEL_COLOR
+from openpilot.selfdrive.ui.mici.widgets.button import BigButton, BigCircleButton, BigParamControl, COMPLICATION_GREY, LABEL_COLOR
 from openpilot.selfdrive.ui.mici.widgets.dialog import BigDialog, BigConfirmationDialog, BigInputDialog
 from openpilot.selfdrive.ui.mici.widgets.pairing_dialog import PairingDialog
 from openpilot.selfdrive.ui.mici.onroad.driver_camera_dialog import DriverCameraDialog
 from openpilot.selfdrive.ui.mici.layouts.onboarding import TrainingGuide, TermsPage
-from openpilot.selfdrive.ui.mici.layouts.settings.worldview import MapSteerToggle
+from openpilot.selfdrive.ui.mici.layouts.settings.worldview import DetectorToggle, MapSteerToggle
 from openpilot.system.ui.lib.application import gui_app, FontWeight, MousePos
 from openpilot.system.ui.lib.multilang import tr
 from openpilot.system.ui.widgets import Widget
@@ -419,6 +419,8 @@ class DeviceLayoutMici(NavScroller):
       update_btn,
       switch_branch_btn,
       MapSteerToggle(),
+      BigParamControl("3D world map", "WorldMapEnabled"),
+      DetectorToggle(),
       PairBigButton(),
       review_training_guide_btn,
       driver_cam_btn,

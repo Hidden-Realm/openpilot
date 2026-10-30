@@ -23,7 +23,8 @@ PARAMS_PERIOD = 2.0
 STATS_PERIOD = 30.0
 FLUSH_PERIOD = 10.0        # the device loses power with the car, so at most this much mapping is lost
 SOFTWARE_PERIOD = 5.0
-SLOW_UPDATE_MS = 60.0      # above this (averaged), map at 5 Hz instead of 10 to leave the CPU to driving
+MODEL_FRAMES_PER_UPDATE = 4   # 5 map updates a second: plenty for mapping, and light on the CPU
+SLOW_UPDATE_MS = 60.0         # above this (averaged), halve again to leave the CPU to driving
 
 
 def publish(pm: messaging.PubMaster, builder: WorldBuilder, out: dict) -> None:
@@ -120,7 +121,7 @@ def main():
   last_software = 0.0
   last_model = -1e9
   v_ego = 0.0
-  every = 2          # model frames per map update
+  every = MODEL_FRAMES_PER_UPDATE
   slow_ms = 0.0
 
   cloudlog.warning(f"worldmap: {len(store.keys())} tiles, {store.total_bytes / 1e6:.0f} MB")
@@ -163,7 +164,7 @@ def main():
       publish(pm, builder, out)
 
       slow_ms = 0.95 * slow_ms + 0.05 * builder.update_ms
-      every = 4 if slow_ms > SLOW_UPDATE_MS else 2
+      every = 2 * MODEL_FRAMES_PER_UPDATE if slow_ms > SLOW_UPDATE_MS else MODEL_FRAMES_PER_UPDATE
 
       if builder.stats_changed or now - last_stats > STATS_PERIOD:
         save_stats(params, builder.stats)

@@ -459,7 +459,7 @@ function fillInfo() {
     ["Night", L.night ? "yes" : "no"],
   ]);
   rows("t-det", [
-    ["Detector", d.ready ? "running" : "off (no compiled model)"],
+    ["Detector", d.ready ? "running" : (d.ready === false ? "no compiled model" : "off (device settings)")],
     ["Run time", fmt(d.ms, 1, " ms")],
     ["Rate", fmt(d.hz, 1, " Hz")],
     ["Skipped for driving", d.skipped ?? "--"],

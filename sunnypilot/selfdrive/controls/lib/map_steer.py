@@ -23,7 +23,7 @@ from openpilot.common.swaglog import cloudlog
 MAX_WEIGHT = 0.5
 MAX_LAT_ACCEL = 0.3       # m/s^2: the most the map may change the requested sideways acceleration
 MIN_SPEED = 8.0           # m/s
-MAX_AGE = 0.3             # seconds: older map messages are ignored
+MAX_AGE = 0.5             # seconds: older map messages are ignored (the map updates 5 times a second)
 RAMP_UP = 0.25            # weight per second
 RAMP_DOWN = 2.0
 PARAMS_PERIOD = 1.0

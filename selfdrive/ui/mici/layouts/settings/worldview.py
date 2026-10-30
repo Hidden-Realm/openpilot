@@ -2,7 +2,7 @@ import time
 
 from openpilot.common.params import Params
 from openpilot.selfdrive.ui.mici.layouts.settings.dashcam import DashcamDialog
-from openpilot.selfdrive.ui.mici.widgets.button import BigButton, BigToggle
+from openpilot.selfdrive.ui.mici.widgets.button import BigButton, BigParamControl, BigToggle
 from openpilot.selfdrive.ui.mici.widgets.dialog import BigDialog
 from openpilot.selfdrive.ui.ui_state import ui_state
 from openpilot.system.ui.lib.application import MousePos, gui_app
@@ -94,3 +94,18 @@ class MapSteerToggle(BigToggle):
     super()._handle_mouse_release(mouse_pos)
     self._params.put_bool("WorldMapSteer", self._checked, block=True)
     self._last_refresh = float("-inf")
+
+
+class DetectorToggle(BigParamControl):
+  """Device settings switch for the camera detector. It shares the GPU with the driving and driver monitoring
+  models, so it is off by default, and it can only be turned on while disengaged (off works any time)."""
+
+  def __init__(self):
+    super().__init__("camera detector", "WorldMapDetector")
+    self.set_value("beta: uses the GPU")
+
+  def _handle_mouse_release(self, mouse_pos: MousePos):
+    if not self._checked and ui_state.engaged:
+      gui_app.push_widget(BigDialog("", "Disengage to turn on the camera detector"))
+      return
+    super()._handle_mouse_release(mouse_pos)

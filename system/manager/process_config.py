@@ -68,6 +68,13 @@ def use_github_runner(started, params, CP: car.CarParams) -> bool:
   return not PC and params.get_bool("EnableGithubRunner") and (
     not params.get_bool("NetworkMetered") and not params.get_bool("GithubRunnerSufficientVoltage"))
 
+def world_map(started, params, CP: car.CarParams) -> bool:
+  return params.get_bool("WorldMapEnabled")
+
+def world_detector(started, params, CP: car.CarParams) -> bool:
+  """The camera detector shares the GPU with the driving and driver monitoring models, so it is opt-in."""
+  return started and params.get_bool("WorldMapEnabled") and params.get_bool("WorldMapDetector")
+
 def drivesight_link(started, params, CP: car.CarParams) -> bool:
   """DriveSight laptop link: stream device messages (cameras, model, car state, GPS) to the network, read-only."""
   return params.get_bool("DriveSightLink")
@@ -193,8 +200,8 @@ procs += [
   PythonProcess("dashcam_uploader", "sunnypilot.dashcam.upload", always_run),
 
   # world map: builds a map of driven roads, serves the 3D viewer, and offers map steering once it qualifies
-  PythonProcess("worldd", "sunnypilot.worldmap.worldd", always_run),
-  PythonProcess("worldobjectsd", "sunnypilot.worldmap.detector.detectord", only_onroad, enabled=TICI),
+  PythonProcess("worldd", "sunnypilot.worldmap.worldd", world_map),
+  PythonProcess("worldobjectsd", "sunnypilot.worldmap.detector.detectord", world_detector, enabled=TICI),
 ]
 
 if os.path.exists("./github_runner.sh"):

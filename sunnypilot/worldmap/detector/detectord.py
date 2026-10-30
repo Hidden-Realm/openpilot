@@ -3,11 +3,13 @@
 Camera detector for the world map: people, bikes, vehicles, traffic lights and stop signs.
 
 A small YOLO11n network (compiled for the GPU at build time, like the driver monitoring model) looks at the
-road and wide cameras in turn, a few times a second. The driving model always comes first:
+road and wide cameras in turn, about twice a second. It is off unless turned on in device settings: it shares
+the GPU with the driving and driver monitoring models, and a run holds the GPU until it finishes, so it can
+make their frames late. When it does run, they always come first:
 
 * a run only starts right after a driving-model frame, so they don't overlap on the GPU, and
-* if the driving model reports slow frames or dropped frames, runs are skipped and the pause grows until it
-  recovers.
+* if either model reports slow frames, or the driving model drops frames, runs are skipped and the pause grows
+  until they recover.
 
 Detections are placed in the car frame (ranging.py), tracked between runs (tracker.py) and published as
 worldObjectsSP. At night the frames are brightened first (yolo.py). Nothing here reaches the car's controls.
@@ -28,9 +30,10 @@ from openpilot.sunnypilot.worldmap.detector.tracker import Tracker
 MODEL_DIR = Path(__file__).parent / "models"
 MODEL_PKL = MODEL_DIR / "yolo11n_448x256_tinygrad.pkl"
 
-TARGET_HZ = 4.0              # runs per second over both cameras
-MAX_MODEL_EXEC = 0.045       # seconds: slower driving-model frames mean the GPU is busy enough
-MAX_FRAME_DROP = 2.0         # percent
+TARGET_HZ = 2.0              # runs per second over both cameras
+MAX_MODEL_EXEC = 0.035       # seconds: slower driving-model frames mean the GPU is busy enough
+MAX_DM_EXEC = 0.03           # same for the driver monitoring model
+MAX_FRAME_DROP = 0.5         # percent
 MAX_BACKOFF = 2.0            # seconds between runs at most when backing off
 HEARTBEAT = 0.5              # publish at least this often, so the viewer knows we're alive
 
@@ -97,8 +100,8 @@ def main():
   from msgq.visionipc import VisionIpcClient, VisionStreamType
 
   pm = messaging.PubMaster(['worldObjectsSP'])
-  sm = messaging.SubMaster(['modelV2', 'carState', 'livePose', 'liveCalibration', 'roadCameraState', 'wideRoadCameraState'],
-                           poll='modelV2')
+  sm = messaging.SubMaster(['modelV2', 'carState', 'livePose', 'liveCalibration', 'roadCameraState', 'wideRoadCameraState',
+                            'driverStateV2'], poll='modelV2')
   tracker = Tracker()
 
   net = None
@@ -137,7 +140,8 @@ def main():
     ran = False
     if net is not None and sm.updated['modelV2'] and now >= next_run:
       model = sm['modelV2']
-      if model.modelExecutionTime > MAX_MODEL_EXEC or model.frameDropPerc > MAX_FRAME_DROP:
+      dm_slow = sm.seen['driverStateV2'] and sm['driverStateV2'].modelExecutionTime > MAX_DM_EXEC
+      if model.modelExecutionTime > MAX_MODEL_EXEC or model.frameDropPerc > MAX_FRAME_DROP or dm_slow:
         skipped += 1
         interval = min(interval * 1.5, MAX_BACKOFF)
         next_run = now + interval

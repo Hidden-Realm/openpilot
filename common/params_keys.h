@@ -188,6 +188,8 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
 
     // World map (sunnypilot/worldmap) and the DriveSight laptop link
     {"DriveSightLink", {PERSISTENT | BACKUP, BOOL, "0"}},
+    {"WorldMapDetector", {PERSISTENT | BACKUP, BOOL, "0"}},
+    {"WorldMapEnabled", {PERSISTENT | BACKUP, BOOL, "1"}},
     {"WorldMapQualified", {PERSISTENT, BOOL, "0"}},
     {"WorldMapStats", {PERSISTENT, JSON}},
     {"WorldMapSteer", {PERSISTENT | BACKUP, BOOL, "0"}},
